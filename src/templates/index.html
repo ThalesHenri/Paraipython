@@ -1,0 +1,74 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Paraípython — O Jornal Matinal Parahybano{% endblock %}
+
+{% block content %}
+<div class="newspaper-container">
+
+  <!-- CABEÇALHO CLÁSSICO -->
+  <header class="newspaper-header">
+    <div class="sub-top">Edição Diária Automática • João Pessoa - PB</div>
+    <h1>Paraipython</h1>
+    <div class="motto">"O compilado matinal das principais notícias da capital, no formato clássico de imprensa."</div>
+  </header>
+
+  <!-- BARRA DE INFORMAÇÕES DA EDIÇÃO -->
+  <div class="edition-bar">
+    <span>Data: {{ edicao_hoje.data_edicao|date:"d/m/Y"|default:"---" }}</span>
+    <span>Edição Nº: {{ edicao_hoje.numero_edicao|default:"---" }}</span>
+    <span>Preço: Gratuito (via Python)</span>
+  </div>
+
+  <!-- SEÇÃO DE DESTAQUE DA EDIÇÃO DO DIA -->
+  {% if edicao_hoje and edicao_hoje.arquivo_pdf %}
+    <section class="hero-edition">
+      <div class="hero-info">
+        <h2>A Edição de Hoje Já Está No Ponto!</h2>
+        <p>
+          O robô concluiu a compilação das matérias dos portais respeitados de João Pessoa. 
+          O arquivo PDF foi formatado em 3 colunas no estilo retrô dos jornais de época, pronto para leitura offline.
+        </p>
+
+        <!-- BOTÃO DE DOWNLOAD EM DESTAQUE -->
+        <a href="{{ edicao_hoje.arquivo_pdf.url }}" class="btn-download-hero" download>
+          <span>📥 Baixar Jornal em PDF</span>
+        </a>
+
+        <a href="{{ edicao_hoje.arquivo_pdf.url }}" target="_blank" class="btn-secondary">
+          🔍 Visualizar no navegador
+        </a>
+      </div>
+
+      <!-- PRÉ-VISUALIZAÇÃO DA CAPA DO PDF -->
+      <div class="hero-preview">
+        <iframe src="{{ edicao_hoje.arquivo_pdf.url }}#toolbar=0&navpanes=0&scrollbar=0" title="Pré-visualização do Paraípython"></iframe>
+      </div>
+    </section>
+  {% else %}
+    <section class="empty-state">
+      <h3>📜 A edição das 06:00 AM ainda ta de rosca!</h3>
+      <p>Nosso script está vasculhando os portais de João Pessoa. Volte em instantes ou confira a última edição publicada abaixo.</p>
+      
+      {% if ultima_edicao %}
+        <div style="margin-top: 20px;">
+          <a href="{{ ultima_edicao.arquivo_pdf.url }}" class="btn-download-hero" style="display: inline-flex; width: auto;" download>
+            📥 Baixar Última Edição Disponível ({{ ultima_edicao.data_edicao|date:"d/m/Y" }})
+          </a>
+        </div>
+      {% endif %}
+    </section>
+  {% endif %}
+
+  <!-- RODAPÉ -->
+  <footer class="newspaper-footer">
+    <p>Paraípython © {{ data_atual|date:"Y" }} — Desenvolvido com Django, WeasyPrint & Amor pela Paraíba.</p>
+    <!-- ToDo trocar o # abaixo pelo link correto para o acervo de edições anteriores,
+      quando a funcionalidade estiver implementada.
+      Apagar o S no meio do código pois o django le mesmo sendo um comentario
+    {S% url 'news:acervo' %}-->
+    <p><a href="#" style="color: var(--ink-black); font-weight: bold;">📁 Acessar o Acervo de Edições Anteriores</a></p>
+  </footer>
+
+</div>
+{% endblock %}
