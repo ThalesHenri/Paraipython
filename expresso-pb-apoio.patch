@@ -1,0 +1,507 @@
+diff --git a/README.md b/README.md
+index a514d06..aab4cb1 100644
+--- a/README.md
++++ b/README.md
+@@ -58,8 +58,8 @@ src/
+ │   │   └── generate_pdf.py       🎨 regera só o PDF (pra ajustar o layout)
+ │   ├── views/                    🌐 home, acervo e entrega dos PDFs
+ │   ├── migrations/               🗃️ inclusive as fontes iniciais (JP, g1 PB, PB Agora)
+-│   └── tests/                    ✅ 29 testes, com feeds reais de exemplo
+-├── web/                          ℹ️  página "Sobre"
++│   └── tests/                    ✅ testes, com feeds reais de exemplo
++├── web/                          ℹ️  página "Sobre" + seção ☕ Apoie (pix.py gera o BR Code)
+ ├── templates/
+ │   ├── news/                     🏠 index.html, acervo.html
+ │   └── pdf/jornal_template.html  📰 o HTML/CSS que vira arte vintage
+@@ -77,7 +77,7 @@ src/
+ * Python 3.10+ (mais afiado que peixeira de baiano)
+ * Django 5.2
+ * WeasyPrint (precisa das bibliotecas do sistema **Pango** e **HarfBuzz**)
+-* feedparser, beautifulsoup4, requests, pypdfium2, whitenoise, python-dotenv
++* feedparser, beautifulsoup4, requests, qrcode (Pix da página de apoio), pypdfium2, whitenoise, python-dotenv
+ 
+ Tudo no `requirements.txt`.
+ 
+@@ -156,6 +156,18 @@ python manage.py fetch_daily_news \
+    nano .env                                                       # DEBUG=False, domínio, banco
+    ```
+ 
++   **Apoio dos leitores (página Sobre → "☕ Apoie"):** sem `APOIO_PIX_CHAVE` no `.env`, a página mostra uma chave e QR codes **fictícios** com um aviso vermelho. Preencha antes de publicar:
++
++   ```bash
++   APOIO_PIX_CHAVE=sua-chave@email.com        # e-mail, CPF/CNPJ, celular (+5583...) ou chave aleatória
++   APOIO_PIX_NOME=Seu Nome Completo           # como aparece no banco (até 25 caracteres)
++   APOIO_PIX_CIDADE=Joao Pessoa
++   APOIO_LINK_NOME=Apoia.se                   # opcional: apoio recorrente
++   APOIO_LINK_URL=https://apoia.se/seu-perfil # deixe vazio pra esconder o card
++   ```
++
++   O QR do Pix é gerado sozinho a partir da chave (BR Code estático, padrão do Banco Central, sem valor fixo). Se preferir usar a imagem do QR que o seu banco gera, salve em `src/static/img/` e aponte `APOIO_PIX_QR_IMAGEM=img/meu-pix.png`. Depois de configurar, abra o app do banco e leia o QR da página pra conferir o nome do favorecido antes de divulgar.
++
+ 6. **Prepare o terreno:**
+ 
+    ```bash
+diff --git a/requirements.txt b/requirements.txt
+index 9a479e9..848246d 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -17,6 +17,7 @@ pydyf==0.12.1
+ pypdfium2==5.13.0
+ pyphen==0.18.1
+ python-dotenv==1.2.3
++qrcode==8.2
+ requests==2.34.2
+ soupsieve==2.10
+ sqlparse==0.6.1
+diff --git a/src/.env.example b/src/.env.example
+index 3742eac..69d0dd1 100644
+--- a/src/.env.example
++++ b/src/.env.example
+@@ -14,6 +14,16 @@ DJANGO_CSRF_TRUSTED_ORIGINS=https://paraipython.seudominio.com.br
+ # DB_HOST=localhost
+ # DB_PORT=5432
+ 
++# --- Apoio dos leitores (página Sobre) ---
++# Sem APOIO_PIX_CHAVE, a página mostra dados fictícios com um aviso.
++# APOIO_PIX_CHAVE=sua-chave-pix@email.com      # e-mail, CPF/CNPJ, celular (+5583...) ou chave aleatória
++# APOIO_PIX_NOME=Seu Nome Completo              # até 25 caracteres, como no banco
++# APOIO_PIX_CIDADE=Joao Pessoa                  # até 15 caracteres
++# APOIO_PIX_DESCRICAO=Cafezinho pro Expresso PB
++# APOIO_PIX_QR_IMAGEM=img/meu-pix.png           # opcional: QR do seu banco salvo em src/static/img/
++# APOIO_LINK_NOME=Apoia.se
++# APOIO_LINK_URL=https://apoia.se/seu-perfil    # deixe vazio (APOIO_LINK_URL=) para esconder
++
+ # --- Robô ---
+ # PARAIPYTHON_NOTICIAS_POR_EDICAO=13
+ # PARAIPYTHON_JANELA_HORAS=24
+diff --git a/src/core/settings.py b/src/core/settings.py
+index 1171592..d9a49a0 100644
+--- a/src/core/settings.py
++++ b/src/core/settings.py
+@@ -190,6 +190,23 @@ PARAIPYTHON = {
+     "USER_AGENT": "ExpressoPB/1.0 (+agregador de manchetes de Joao Pessoa)",
+ }
+ 
++# --- Apoio dos leitores (página Sobre) ---
++# Sem PIX_CHAVE no .env, a página usa dados FICTÍCIOS e mostra um aviso.
++# No deploy, preencha as variáveis APOIO_* no src/.env com os seus dados.
++APOIO = {
++    "PIX_CHAVE": os.getenv("APOIO_PIX_CHAVE", "chave-ficticia@expressopb.exemplo"),
++    "PIX_NOME": os.getenv("APOIO_PIX_NOME", "Expresso PB"),
++    "PIX_CIDADE": os.getenv("APOIO_PIX_CIDADE", "Joao Pessoa"),
++    "PIX_DESCRICAO": os.getenv("APOIO_PIX_DESCRICAO", "Cafezinho pro Expresso PB"),
++    # Opcional: caminho em static/ de uma imagem de QR gerada pelo seu banco
++    # (ex.: img/meu-pix.png). Vazio = o QR é gerado a partir da chave acima.
++    "PIX_QR_IMAGEM": os.getenv("APOIO_PIX_QR_IMAGEM", ""),
++    # Link de apoio recorrente (Apoia.se, Catarse, Ko-fi...). Vazio = some da página.
++    "LINK_NOME": os.getenv("APOIO_LINK_NOME", "Apoio mensal"),
++    "LINK_URL": os.getenv("APOIO_LINK_URL", "https://apoie.exemplo/expresso-pb"),
++    "FICTICIO": not os.getenv("APOIO_PIX_CHAVE"),
++}
++
+ LOGGING = {
+     "version": 1,
+     "disable_existing_loggers": False,
+diff --git a/src/static/css/style.css b/src/static/css/style.css
+index 4af25af..a4c1131 100644
+--- a/src/static/css/style.css
++++ b/src/static/css/style.css
+@@ -344,8 +344,122 @@ body {
+ 
+ .newspaper-footer .aviso { font-size: 0.75rem; font-style: italic; }
+ 
++.menu .menu-apoie { color: var(--accent-red); }
++
++/* ==========================================
++   10. APOIE (PIX E LINK DE APOIO)
++   ================================---------- */
++.apoie {
++  max-width: 760px;
++  margin: 40px auto 0;
++  border-top: 3px double var(--border-line);
++  padding-top: 20px;
++}
++
++.apoie h2 {
++  font-family: var(--font-heading);
++  text-align: center;
++  font-size: 1.8rem;
++  margin: 0 0 10px;
++}
++
++.apoie-intro { text-align: center; line-height: 1.7; }
++
++.aviso-ficticio {
++  border: 2px dashed var(--accent-red);
++  background: rgba(139, 0, 0, 0.06);
++  color: var(--accent-red);
++  padding: 10px 14px;
++  margin: 18px 0;
++  font-size: 0.9rem;
++  text-align: center;
++}
++
++.cardapio {
++  display: flex;
++  flex-wrap: wrap;
++  justify-content: center;
++  gap: 10px 24px;
++  margin: 18px 0 24px;
++  font-size: 0.9rem;
++}
++
++.cardapio span { border-bottom: 1px dotted var(--border-line); padding-bottom: 2px; }
++.cardapio strong { font-family: var(--font-heading); margin-right: 6px; }
++.cardapio .livre { font-style: italic; border-bottom: none; }
++
++.apoie-grid {
++  display: grid;
++  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
++  gap: 24px;
++}
++
++.apoie-card {
++  border: 2px solid var(--border-line);
++  box-shadow: 4px 4px 0 var(--ink-black);
++  background: rgba(255, 255, 255, 0.3);
++  padding: 20px;
++  text-align: center;
++  display: flex;
++  flex-direction: column;
++  gap: 8px;
++}
++
++.apoie-card h3 {
++  font-family: var(--font-masthead);
++  font-weight: 400;
++  font-size: 2rem;
++  margin: 0;
++}
++
++.apoie-qr {
++  width: 190px;
++  height: 190px;
++  margin: 4px auto;
++  background: #fff;
++  padding: 6px;
++  border: 1px solid var(--border-line);
++}
++
++.apoie-legenda { font-size: 0.82rem; color: #4a4036; margin: 0; }
++
++.apoie-card label {
++  text-align: left;
++  font-size: 0.75rem;
++  text-transform: uppercase;
++  letter-spacing: 1px;
++  margin-top: 6px;
++}
++
++.copiar { display: flex; }
++
++.copiar input {
++  flex: 1;
++  min-width: 0;
++  font-family: monospace;
++  font-size: 0.8rem;
++  padding: 8px;
++  border: 1px solid var(--border-line);
++  background: var(--paper-bg);
++  color: var(--ink-black);
++}
++
++.copiar button {
++  font-family: var(--font-heading);
++  font-weight: bold;
++  border: 1px solid var(--ink-black);
++  background: var(--ink-black);
++  color: var(--paper-bg);
++  padding: 0 14px;
++  cursor: pointer;
++}
++
++.copiar button:hover { background: var(--accent-red); }
++
++.apoie-card .btn-download-hero { font-size: 1rem; padding: 12px 20px; margin-top: auto; }
++
+ /* ==========================================
+-   10. RESPONSIVIDADE (MOBILE)
++   11. RESPONSIVIDADE (MOBILE)
+    ================================---------- */
+ @media (max-width: 768px) {
+   .newspaper-container {
+diff --git a/src/templates/base.html b/src/templates/base.html
+index eb30a14..694caf7 100644
+--- a/src/templates/base.html
++++ b/src/templates/base.html
+@@ -32,6 +32,7 @@
+     <a href="{% url 'news:home' %}">Edição do dia</a>
+     <a href="{% url 'news:acervo' %}">Acervo</a>
+     <a href="{% url 'web:sobre' %}">Sobre</a>
++    <a href="{% url 'web:sobre' %}#apoie" class="menu-apoie">☕ Apoie</a>
+   </nav>
+ 
+   {% block content %}{% endblock %}
+diff --git a/src/templates/web/sobre.html b/src/templates/web/sobre.html
+index bece28c..b944479 100644
+--- a/src/templates/web/sobre.html
++++ b/src/templates/web/sobre.html
+@@ -28,4 +28,75 @@
+       até eles, não substituí-los.
+     </p>
+   </section>
++
++  <section class="apoie" id="apoie">
++    <h2>☕ Pague um cafezinho pro robô</h2>
++    <p class="apoie-intro">
++      O Expresso PB é gratuito e sem anúncios. Se a edição da manhã já virou parte do seu café,
++      você pode ajudar a manter o servidor ligado e o robô moendo notícias todo dia.
++    </p>
++
++    {% if apoio.ficticio %}
++      <div class="aviso-ficticio">
++        <strong>Dados de exemplo.</strong> A chave Pix e os QR codes abaixo são fictícios.
++        Configure as variáveis <code>APOIO_*</code> no <code>.env</code> antes de publicar.
++      </div>
++    {% endif %}
++
++    <div class="cardapio">
++      <span><strong>Um expresso</strong> R$ 5</span>
++      <span><strong>Um cappuccino</strong> R$ 10</span>
++      <span><strong>Café com cuscuz</strong> R$ 20</span>
++      <span class="livre">ou o valor que quiser</span>
++    </div>
++
++    <div class="apoie-grid">
++      <article class="apoie-card">
++        <h3>Pix</h3>
++        <img class="apoie-qr" src="{{ apoio.pix_qr }}" alt="QR code Pix para apoiar o Expresso PB">
++        <p class="apoie-legenda">Abra o app do banco, escolha <em>Pagar com Pix → QR code</em> e aponte a câmera.</p>
++
++        <label for="pix-chave">Chave Pix</label>
++        <div class="copiar">
++          <input id="pix-chave" type="text" value="{{ apoio.pix_chave }}" readonly>
++          <button type="button" data-copiar="pix-chave">Copiar</button>
++        </div>
++
++        <label for="pix-copia-cola">Pix copia e cola</label>
++        <div class="copiar">
++          <input id="pix-copia-cola" type="text" value="{{ apoio.pix_copia_e_cola }}" readonly>
++          <button type="button" data-copiar="pix-copia-cola">Copiar</button>
++        </div>
++        <p class="apoie-legenda">Favorecido: <strong>{{ apoio.pix_nome }}</strong></p>
++      </article>
++
++      {% if apoio.link_url %}
++        <article class="apoie-card">
++          <h3>{{ apoio.link_nome }}</h3>
++          <img class="apoie-qr" src="{{ apoio.link_qr }}" alt="QR code do link de apoio">
++          <p class="apoie-legenda">Prefere apoiar todo mês? Assine um cafezinho recorrente.</p>
++          <a class="btn-download-hero" href="{{ apoio.link_url }}" target="_blank" rel="noopener">☕ Apoiar todo mês</a>
++        </article>
++      {% endif %}
++    </div>
++  </section>
++
++  <script>
++    document.querySelectorAll("[data-copiar]").forEach(function (botao) {
++      botao.addEventListener("click", function () {
++        var campo = document.getElementById(botao.dataset.copiar);
++        var feito = function () {
++          botao.textContent = "Copiado!";
++          setTimeout(function () { botao.textContent = "Copiar"; }, 2000);
++        };
++        if (navigator.clipboard && window.isSecureContext) {
++          navigator.clipboard.writeText(campo.value).then(feito);
++        } else {
++          campo.select();
++          document.execCommand("copy");
++          feito();
++        }
++      });
++    });
++  </script>
+ {% endblock %}
+diff --git a/src/web/pix.py b/src/web/pix.py
+new file mode 100644
+index 0000000..1c53d48
+--- /dev/null
++++ b/src/web/pix.py
+@@ -0,0 +1,65 @@
++"""Pix "copia e cola" (BR Code estático) e QR code em SVG, sem depender de serviço externo.
++
++O payload segue o padrão EMV QRCPS-MPM do Manual de Padrões para Iniciação do Pix (BCB):
++cada campo é ID (2 dígitos) + tamanho (2 dígitos) + valor, e o código termina com um
++CRC16-CCITT (polinômio 0x1021, valor inicial 0xFFFF) calculado sobre todo o resto.
++"""
++import unicodedata
++from base64 import b64encode
++from decimal import Decimal
++
++
++def _campo(id_, valor):
++    valor = str(valor)
++    if len(valor) > 99:
++        raise ValueError(f"Campo {id_} do Pix passou de 99 caracteres.")
++    return f"{id_}{len(valor):02d}{valor}"
++
++
++def _ascii_maiusculo(texto, limite):
++    """Nome e cidade do recebedor: sem acento, maiúsculo e dentro do limite do padrão."""
++    sem_acento = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
++    return sem_acento.upper().strip()[:limite]
++
++
++def crc16_ccitt(dados: str) -> str:
++    crc = 0xFFFF
++    for byte in dados.encode("utf-8"):
++        crc ^= byte << 8
++        for _ in range(8):
++            crc = ((crc << 1) ^ 0x1021) if crc & 0x8000 else (crc << 1)
++            crc &= 0xFFFF
++    return f"{crc:04X}"
++
++
++def payload_pix(chave, nome, cidade, txid="***", descricao="", valor=None):
++    """Monta o código "Pix copia e cola" de um QR estático.
++
++    ``valor=None`` deixa o leitor escolher quanto doar.
++    """
++    conta = _campo("00", "br.gov.bcb.pix") + _campo("01", chave.strip())
++    if descricao:
++        conta += _campo("02", descricao[:40])
++
++    payload = (
++        _campo("00", "01")                       # versão do payload
++        + _campo("26", conta)                    # dados da conta Pix
++        + _campo("52", "0000")                   # categoria do comerciante
++        + _campo("53", "986")                    # moeda: real
++        + (_campo("54", f"{Decimal(valor):.2f}") if valor else "")
++        + _campo("58", "BR")
++        + _campo("59", _ascii_maiusculo(nome, 25))
++        + _campo("60", _ascii_maiusculo(cidade, 15))
++        + _campo("62", _campo("05", txid[:25]))  # identificador da transação
++        + "6304"                                 # CRC vem a seguir
++    )
++    return payload + crc16_ccitt(payload)
++
++
++def qr_svg_data_uri(texto):
++    """QR code em SVG embutido como data URI (sem arquivo e sem Pillow)."""
++    import qrcode
++    import qrcode.image.svg
++
++    img = qrcode.make(texto, image_factory=qrcode.image.svg.SvgPathImage, border=2, box_size=10)
++    return "data:image/svg+xml;base64," + b64encode(img.to_string()).decode()
+diff --git a/src/web/tests.py b/src/web/tests.py
+new file mode 100644
+index 0000000..a02bdbd
+--- /dev/null
++++ b/src/web/tests.py
+@@ -0,0 +1,57 @@
++from django.test import TestCase, override_settings
++from django.urls import reverse
++
++from web.pix import crc16_ccitt, payload_pix
++
++APOIO_REAL = {
++    "PIX_CHAVE": "+5583999990000",
++    "PIX_NOME": "Fulano de Tal da Silva Sauro",
++    "PIX_CIDADE": "João Pessoa",
++    "PIX_DESCRICAO": "",
++    "PIX_QR_IMAGEM": "",
++    "LINK_NOME": "Apoia.se",
++    "LINK_URL": "",
++    "FICTICIO": False,
++}
++
++
++class PixTest(TestCase):
++    def test_crc_bate_com_exemplo_do_manual_do_bcb(self):
++        exemplo = (
++            "00020126580014br.gov.bcb.pix0136123e4567-e12b-12d1-a456-426655440000"
++            "5204000053039865802BR5913Fulano de Tal6008BRASILIA62070503***6304"
++        )
++        self.assertEqual(crc16_ccitt(exemplo), "1D3D")
++
++    def test_payload_estatico(self):
++        codigo = payload_pix("+5583999990000", "Fulano de Tal da Silva Sauro", "João Pessoa")
++        self.assertTrue(codigo.startswith("000201"))
++        self.assertIn("0014br.gov.bcb.pix0114+5583999990000", codigo)
++        self.assertIn("5925FULANO DE TAL DA SILVA S", codigo)  # nome cortado em 25
++        self.assertIn("6011JOAO PESSOA", codigo)                # sem acento
++        self.assertIn("53039865802BR", codigo)                  # sem valor fixo (campo 54)
++        self.assertEqual(codigo[-4:], crc16_ccitt(codigo[:-4]))
++
++    def test_payload_com_valor(self):
++        self.assertIn("54045.00", payload_pix("a@b.com", "X", "Y", valor=5))
++
++
++class SobreApoieTest(TestCase):
++    def test_dados_ficticios_mostram_aviso(self):
++        resp = self.client.get(reverse("web:sobre"))
++        self.assertContains(resp, "Pague um cafezinho pro robô")
++        self.assertContains(resp, "Dados de exemplo")
++        self.assertContains(resp, "chave-ficticia@expressopb.exemplo")
++        self.assertContains(resp, "data:image/svg+xml;base64,")
++
++    @override_settings(APOIO=APOIO_REAL)
++    def test_dados_reais_sem_aviso_e_sem_link(self):
++        resp = self.client.get(reverse("web:sobre"))
++        self.assertNotContains(resp, "Dados de exemplo")
++        self.assertContains(resp, "+5583999990000")
++        self.assertNotContains(resp, "Apoiar todo mês")
++
++    @override_settings(APOIO={**APOIO_REAL, "PIX_QR_IMAGEM": "img/meu-pix.png"})
++    def test_imagem_do_banco_tem_prioridade(self):
++        resp = self.client.get(reverse("web:sobre"))
++        self.assertContains(resp, "/static/img/meu-pix.png")
+diff --git a/src/web/views/page_views.py b/src/web/views/page_views.py
+index a2e556f..1d9b3b2 100644
+--- a/src/web/views/page_views.py
++++ b/src/web/views/page_views.py
+@@ -1,7 +1,38 @@
++from django.conf import settings
++from django.templatetags.static import static
+ from django.utils import timezone
+ from django.views.generic import TemplateView
+ 
+ from news.models import FonteNoticia
++from web.pix import payload_pix, qr_svg_data_uri
++
++
++def contexto_apoio():
++    """Dados da seção "Apoie" a partir do settings.APOIO (que lê o .env)."""
++    cfg = settings.APOIO
++    copia_e_cola = payload_pix(
++        chave=cfg["PIX_CHAVE"],
++        nome=cfg["PIX_NOME"],
++        cidade=cfg["PIX_CIDADE"],
++        descricao=cfg["PIX_DESCRICAO"],
++    )
++    # Se você tiver a imagem do QR gerada pelo seu banco, ela tem prioridade.
++    if cfg["PIX_QR_IMAGEM"]:
++        pix_qr = static(cfg["PIX_QR_IMAGEM"])
++    else:
++        pix_qr = qr_svg_data_uri(copia_e_cola)
++
++    link_qr = qr_svg_data_uri(cfg["LINK_URL"]) if cfg["LINK_URL"] else None
++    return {
++        "ficticio": cfg["FICTICIO"],
++        "pix_chave": cfg["PIX_CHAVE"],
++        "pix_nome": cfg["PIX_NOME"],
++        "pix_copia_e_cola": copia_e_cola,
++        "pix_qr": pix_qr,
++        "link_nome": cfg["LINK_NOME"],
++        "link_url": cfg["LINK_URL"],
++        "link_qr": link_qr,
++    }
+ 
+ 
+ class Sobre(TemplateView):
+@@ -11,4 +42,5 @@ class Sobre(TemplateView):
+         ctx = super().get_context_data(**kwargs)
+         ctx["fontes"] = FonteNoticia.objects.filter(ativa=True)
+         ctx["data_atual"] = timezone.localtime()
++        ctx["apoio"] = contexto_apoio()
+         return ctx

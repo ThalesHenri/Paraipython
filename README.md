@@ -58,8 +58,8 @@ src/
 │   │   └── generate_pdf.py       🎨 regera só o PDF (pra ajustar o layout)
 │   ├── views/                    🌐 home, acervo e entrega dos PDFs
 │   ├── migrations/               🗃️ inclusive as fontes iniciais (JP, g1 PB, PB Agora)
-│   └── tests/                    ✅ 29 testes, com feeds reais de exemplo
-├── web/                          ℹ️  página "Sobre"
+│   └── tests/                    ✅ testes, com feeds reais de exemplo
+├── web/                          ℹ️  página "Sobre" + seção ☕ Apoie (pix.py gera o BR Code)
 ├── templates/
 │   ├── news/                     🏠 index.html, acervo.html
 │   └── pdf/jornal_template.html  📰 o HTML/CSS que vira arte vintage
@@ -77,7 +77,7 @@ src/
 * Python 3.10+ (mais afiado que peixeira de baiano)
 * Django 5.2
 * WeasyPrint (precisa das bibliotecas do sistema **Pango** e **HarfBuzz**)
-* feedparser, beautifulsoup4, requests, pypdfium2, whitenoise, python-dotenv
+* feedparser, beautifulsoup4, requests, qrcode (Pix da página de apoio), pypdfium2, whitenoise, python-dotenv
 
 Tudo no `requirements.txt`.
 
@@ -155,6 +155,18 @@ python manage.py fetch_daily_news \
    python -c "import secrets; print(secrets.token_urlsafe(50))"   # cole em DJANGO_SECRET_KEY
    nano .env                                                       # DEBUG=False, domínio, banco
    ```
+
+   **Apoio dos leitores (página Sobre → "☕ Apoie"):** sem `APOIO_PIX_CHAVE` no `.env`, a página mostra uma chave e QR codes **fictícios** com um aviso vermelho. Preencha antes de publicar:
+
+   ```bash
+   APOIO_PIX_CHAVE=sua-chave@email.com        # e-mail, CPF/CNPJ, celular (+5583...) ou chave aleatória
+   APOIO_PIX_NOME=Seu Nome Completo           # como aparece no banco (até 25 caracteres)
+   APOIO_PIX_CIDADE=Joao Pessoa
+   APOIO_LINK_NOME=Apoia.se                   # opcional: apoio recorrente
+   APOIO_LINK_URL=https://apoia.se/seu-perfil # deixe vazio pra esconder o card
+   ```
+
+   O QR do Pix é gerado sozinho a partir da chave (BR Code estático, padrão do Banco Central, sem valor fixo). Se preferir usar a imagem do QR que o seu banco gera, salve em `src/static/img/` e aponte `APOIO_PIX_QR_IMAGEM=img/meu-pix.png`. Depois de configurar, abra o app do banco e leia o QR da página pra conferir o nome do favorecido antes de divulgar.
 
 6. **Prepare o terreno:**
 

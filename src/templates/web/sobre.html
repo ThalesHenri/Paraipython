@@ -28,4 +28,75 @@
       até eles, não substituí-los.
     </p>
   </section>
+
+  <section class="apoie" id="apoie">
+    <h2>☕ Pague um cafezinho pro robô</h2>
+    <p class="apoie-intro">
+      O Expresso PB é gratuito e sem anúncios. Se a edição da manhã já virou parte do seu café,
+      você pode ajudar a manter o servidor ligado e o robô moendo notícias todo dia.
+    </p>
+
+    {% if apoio.ficticio %}
+      <div class="aviso-ficticio">
+        <strong>Dados de exemplo.</strong> A chave Pix e os QR codes abaixo são fictícios.
+        Configure as variáveis <code>APOIO_*</code> no <code>.env</code> antes de publicar.
+      </div>
+    {% endif %}
+
+    <div class="cardapio">
+      <span><strong>Um expresso</strong> R$ 5</span>
+      <span><strong>Um cappuccino</strong> R$ 10</span>
+      <span><strong>Café com cuscuz</strong> R$ 20</span>
+      <span class="livre">ou o valor que quiser</span>
+    </div>
+
+    <div class="apoie-grid">
+      <article class="apoie-card">
+        <h3>Pix</h3>
+        <img class="apoie-qr" src="{{ apoio.pix_qr }}" alt="QR code Pix para apoiar o Expresso PB">
+        <p class="apoie-legenda">Abra o app do banco, escolha <em>Pagar com Pix → QR code</em> e aponte a câmera.</p>
+
+        <label for="pix-chave">Chave Pix</label>
+        <div class="copiar">
+          <input id="pix-chave" type="text" value="{{ apoio.pix_chave }}" readonly>
+          <button type="button" data-copiar="pix-chave">Copiar</button>
+        </div>
+
+        <label for="pix-copia-cola">Pix copia e cola</label>
+        <div class="copiar">
+          <input id="pix-copia-cola" type="text" value="{{ apoio.pix_copia_e_cola }}" readonly>
+          <button type="button" data-copiar="pix-copia-cola">Copiar</button>
+        </div>
+        <p class="apoie-legenda">Favorecido: <strong>{{ apoio.pix_nome }}</strong></p>
+      </article>
+
+      {% if apoio.link_url %}
+        <article class="apoie-card">
+          <h3>{{ apoio.link_nome }}</h3>
+          <img class="apoie-qr" src="{{ apoio.link_qr }}" alt="QR code do link de apoio">
+          <p class="apoie-legenda">Prefere apoiar todo mês? Assine um cafezinho recorrente.</p>
+          <a class="btn-download-hero" href="{{ apoio.link_url }}" target="_blank" rel="noopener">☕ Apoiar todo mês</a>
+        </article>
+      {% endif %}
+    </div>
+  </section>
+
+  <script>
+    document.querySelectorAll("[data-copiar]").forEach(function (botao) {
+      botao.addEventListener("click", function () {
+        var campo = document.getElementById(botao.dataset.copiar);
+        var feito = function () {
+          botao.textContent = "Copiado!";
+          setTimeout(function () { botao.textContent = "Copiar"; }, 2000);
+        };
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(campo.value).then(feito);
+        } else {
+          campo.select();
+          document.execCommand("copy");
+          feito();
+        }
+      });
+    });
+  </script>
 {% endblock %}

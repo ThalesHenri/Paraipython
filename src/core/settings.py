@@ -190,6 +190,23 @@ PARAIPYTHON = {
     "USER_AGENT": "ExpressoPB/1.0 (+agregador de manchetes de Joao Pessoa)",
 }
 
+# --- Apoio dos leitores (página Sobre) ---
+# Sem PIX_CHAVE no .env, a página usa dados FICTÍCIOS e mostra um aviso.
+# No deploy, preencha as variáveis APOIO_* no src/.env com os seus dados.
+APOIO = {
+    "PIX_CHAVE": os.getenv("APOIO_PIX_CHAVE", "chave-ficticia@expressopb.exemplo"),
+    "PIX_NOME": os.getenv("APOIO_PIX_NOME", "Expresso PB"),
+    "PIX_CIDADE": os.getenv("APOIO_PIX_CIDADE", "Joao Pessoa"),
+    "PIX_DESCRICAO": os.getenv("APOIO_PIX_DESCRICAO", "Cafezinho pro Expresso PB"),
+    # Opcional: caminho em static/ de uma imagem de QR gerada pelo seu banco
+    # (ex.: img/meu-pix.png). Vazio = o QR é gerado a partir da chave acima.
+    "PIX_QR_IMAGEM": os.getenv("APOIO_PIX_QR_IMAGEM", ""),
+    # Link de apoio recorrente (Apoia.se, Catarse, Ko-fi...). Vazio = some da página.
+    "LINK_NOME": os.getenv("APOIO_LINK_NOME", "Apoio mensal"),
+    "LINK_URL": os.getenv("APOIO_LINK_URL", "https://apoie.exemplo/expresso-pb"),
+    "FICTICIO": not os.getenv("APOIO_PIX_CHAVE"),
+}
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,

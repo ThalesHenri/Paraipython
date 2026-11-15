@@ -344,8 +344,122 @@ body {
 
 .newspaper-footer .aviso { font-size: 0.75rem; font-style: italic; }
 
+.menu .menu-apoie { color: var(--accent-red); }
+
 /* ==========================================
-   10. RESPONSIVIDADE (MOBILE)
+   10. APOIE (PIX E LINK DE APOIO)
+   ================================---------- */
+.apoie {
+  max-width: 760px;
+  margin: 40px auto 0;
+  border-top: 3px double var(--border-line);
+  padding-top: 20px;
+}
+
+.apoie h2 {
+  font-family: var(--font-heading);
+  text-align: center;
+  font-size: 1.8rem;
+  margin: 0 0 10px;
+}
+
+.apoie-intro { text-align: center; line-height: 1.7; }
+
+.aviso-ficticio {
+  border: 2px dashed var(--accent-red);
+  background: rgba(139, 0, 0, 0.06);
+  color: var(--accent-red);
+  padding: 10px 14px;
+  margin: 18px 0;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.cardapio {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px 24px;
+  margin: 18px 0 24px;
+  font-size: 0.9rem;
+}
+
+.cardapio span { border-bottom: 1px dotted var(--border-line); padding-bottom: 2px; }
+.cardapio strong { font-family: var(--font-heading); margin-right: 6px; }
+.cardapio .livre { font-style: italic; border-bottom: none; }
+
+.apoie-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 24px;
+}
+
+.apoie-card {
+  border: 2px solid var(--border-line);
+  box-shadow: 4px 4px 0 var(--ink-black);
+  background: rgba(255, 255, 255, 0.3);
+  padding: 20px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.apoie-card h3 {
+  font-family: var(--font-masthead);
+  font-weight: 400;
+  font-size: 2rem;
+  margin: 0;
+}
+
+.apoie-qr {
+  width: 190px;
+  height: 190px;
+  margin: 4px auto;
+  background: #fff;
+  padding: 6px;
+  border: 1px solid var(--border-line);
+}
+
+.apoie-legenda { font-size: 0.82rem; color: #4a4036; margin: 0; }
+
+.apoie-card label {
+  text-align: left;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-top: 6px;
+}
+
+.copiar { display: flex; }
+
+.copiar input {
+  flex: 1;
+  min-width: 0;
+  font-family: monospace;
+  font-size: 0.8rem;
+  padding: 8px;
+  border: 1px solid var(--border-line);
+  background: var(--paper-bg);
+  color: var(--ink-black);
+}
+
+.copiar button {
+  font-family: var(--font-heading);
+  font-weight: bold;
+  border: 1px solid var(--ink-black);
+  background: var(--ink-black);
+  color: var(--paper-bg);
+  padding: 0 14px;
+  cursor: pointer;
+}
+
+.copiar button:hover { background: var(--accent-red); }
+
+.apoie-card .btn-download-hero { font-size: 1rem; padding: 12px 20px; margin-top: auto; }
+
+/* ==========================================
+   11. RESPONSIVIDADE (MOBILE)
    ================================---------- */
 @media (max-width: 768px) {
   .newspaper-container {
