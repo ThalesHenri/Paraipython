@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+
+{% block title %}Acervo — Expresso PB{% endblock %}
+
+{% block content %}
+  <div class="edition-bar">
+    <span>Acervo: as xícaras anteriores</span>
+    <span>{{ paginator.count|default:0 }} edição{{ paginator.count|pluralize:"ões" }}</span>
+  </div>
+
+  {% if edicoes %}
+    <section class="acervo-grid">
+      {% for edicao in edicoes %}
+        <article class="acervo-item">
+          <a href="{{ edicao.get_pdf_url }}" target="_blank" class="acervo-capa">
+            {% if edicao.capa %}
+              <img src="{{ edicao.get_capa_url }}" alt="Capa da edição Nº {{ edicao.numero_edicao }}" loading="lazy">
+            {% else %}
+              <span>Nº {{ edicao.numero_edicao }}</span>
+            {% endif %}
+          </a>
+          <div class="acervo-info">
+            <strong>Nº {{ edicao.numero_edicao }}</strong>
+            <span>{{ edicao.data_edicao|date:"l, d/m/Y" }}</span>
+            <a href="{{ edicao.get_download_url }}">📥 Baixar PDF</a>
+          </div>
+        </article>
+      {% endfor %}
+    </section>
+
+    {% if is_paginated %}
+      <nav class="paginacao">
+        {% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}">← Mais recentes</a>{% endif %}
+        <span>Página {{ page_obj.number }} de {{ paginator.num_pages }}</span>
+        {% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}">Mais antigas →</a>{% endif %}
+      </nav>
+    {% endif %}
+  {% else %}
+    <section class="empty-state">
+      <h3>☕ O acervo ainda está vazio.</h3>
+      <p>Assim que o robô passar o primeiro café, a edição aparece aqui.</p>
+    </section>
+  {% endif %}
+{% endblock %}

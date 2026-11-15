@@ -10,22 +10,51 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Lê o arquivo .env (fica em src/.env). O cron do cPanel não enxerga as variáveis
+# configuradas na tela "Setup Python App", por isso o .env é a fonte única de config.
+load_dotenv(BASE_DIR / ".env")
+
+
+def env_bool(nome, padrao=False):
+    return os.getenv(nome, str(padrao)).strip().lower() in ("1", "true", "yes", "on")
+
+
+def env_list(nome, padrao=""):
+    return [item.strip() for item in os.getenv(nome, padrao).split(",") if item.strip()]
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure--@_#7kv+%huu(sx0fvyn_(ahx@za6+rrus78rz$v3!a1^=(!d7'
+SECRET_KEY = os.getenv(
+    "DJANGO_SECRET_KEY",
+    "django-insecure-somente-para-desenvolvimento-troque-no-env",
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env_bool("DJANGO_DEBUG", True)
 
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
+CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
+
+if not DEBUG:
+    if SECRET_KEY.startswith("django-insecure"):
+        from django.core.exceptions import ImproperlyConfigured
+        raise ImproperlyConfigured("Defina DJANGO_SECRET_KEY no src/.env antes de rodar com DEBUG=False.")
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    # O cPanel termina o HTTPS no Apache e repassa a requisição para o Passenger.
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = env_bool("DJANGO_SSL_REDIRECT", False)
 
 
 # Application definition
@@ -43,6 +72,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Serve /static/ em produção (o Passenger do cPanel não serve sozinho)
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -74,12 +105,27 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+# Padrão: SQLite. Para usar o PostgreSQL ou MySQL do cPanel, defina DB_ENGINE no .env
+# (postgresql ou mysql) e preencha DB_NAME, DB_USER, DB_PASSWORD, DB_HOST e DB_PORT.
+DB_ENGINE = os.getenv("DB_ENGINE", "sqlite3")
+if DB_ENGINE == "sqlite3":
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": f"django.db.backends.{DB_ENGINE}",
+            "NAME": os.getenv("DB_NAME", ""),
+            "USER": os.getenv("DB_USER", ""),
+            "PASSWORD": os.getenv("DB_PASSWORD", ""),
+            "HOST": os.getenv("DB_HOST", "localhost"),
+            "PORT": os.getenv("DB_PORT", ""),
+        }
+    }
 
 
 # Password validation
@@ -106,7 +152,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'pt-br'
 
-TIME_ZONE = 'America/Fortaleza'
+TIME_ZONE = 'America/Fortaleza'  # mesmo fuso de João Pessoa (UTC-3, sem horário de verão)
 
 USE_I18N = True
 
@@ -123,11 +169,34 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles' # Para produção collectstatic
 
 
-#Media files (Aonde os Pdf gerados serão salvos)
+# Media files (onde os PDFs gerados são salvos)
 MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media' # Para produção collectstatic
+MEDIA_ROOT = BASE_DIR / 'media'
 
-PDF_STORAGE_DIR = MEDIA_ROOT / 'edicoes_pdf'  # Diretório para armazenar os PDFs gerados
+# O PDF aparece num <iframe> na home; DENY (padrão do Django) bloquearia o preview.
+X_FRAME_OPTIONS = "SAMEORIGIN"
+
+# --- Expresso PB (configurações do robô; o nome interno do projeto segue "paraipython") ---
+PARAIPYTHON = {
+    # Quantas notícias entram em cada edição (1 manchete + o resto nas colunas)
+    "NOTICIAS_POR_EDICAO": int(os.getenv("PARAIPYTHON_NOTICIAS_POR_EDICAO", 13)),
+    # Janela de horas olhando para trás a partir do momento da geração
+    "JANELA_HORAS": int(os.getenv("PARAIPYTHON_JANELA_HORAS", 24)),
+    # Similaridade de título (0 a 1) a partir da qual duas notícias são "a mesma pauta"
+    "LIMIAR_DUPLICADA": float(os.getenv("PARAIPYTHON_LIMIAR_DUPLICADA", 0.6)),
+    # Tamanho máximo do resumo de cada notícia (caracteres)
+    "TAMANHO_RESUMO": int(os.getenv("PARAIPYTHON_TAMANHO_RESUMO", 320)),
+    "TIMEOUT_HTTP": int(os.getenv("PARAIPYTHON_TIMEOUT_HTTP", 20)),
+    "USER_AGENT": "ExpressoPB/1.0 (+agregador de manchetes de Joao Pessoa)",
+}
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {"simples": {"format": "%(asctime)s %(levelname)s %(name)s: %(message)s"}},
+    "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "simples"}},
+    "loggers": {"news": {"handlers": ["console"], "level": os.getenv("PARAIPYTHON_LOG_LEVEL", "INFO")}},
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

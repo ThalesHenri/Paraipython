@@ -32,8 +32,9 @@ ENV/
 # --- Django Specific ---
 *.sqlite3
 *.sqlite3-journal
-media/edicoes_pdf/*
-!media/edicoes_pdf/.gitkeep
+src/media/edicoes_pdf/*
+!src/media/edicoes_pdf/.gitkeep
+.env
 staticfiles/
 db.sqlite3
 

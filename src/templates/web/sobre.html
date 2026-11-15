@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+
+{% block title %}Sobre — Expresso PB{% endblock %}
+
+{% block content %}
+  <section class="texto-sobre">
+    <h2>Que peste é isso?</h2>
+    <p>
+      O <strong>Expresso PB</strong> é um jornal automatizado de João Pessoa, curto e forte como
+      um expresso. Todo dia às 06:00 um robô em Django mói os feeds dos portais da capital, separa
+      as pautas repetidas, escolhe as mais repercutidas e passa tudo num jornal em PDF no estilo
+      dos anos 1920, pronto pra acompanhar o café da manhã.
+    </p>
+
+    <h3>De onde vêm os grãos</h3>
+    <ul>
+      {% for fonte in fontes %}
+        <li>{% if fonte.site_url %}<a href="{{ fonte.site_url }}" target="_blank" rel="noopener">{{ fonte.nome }}</a>{% else %}{{ fonte.nome }}{% endif %}</li>
+      {% empty %}
+        <li>Nenhuma fonte ativa no momento.</li>
+      {% endfor %}
+    </ul>
+
+    <h3>E os direitos das matérias?</h3>
+    <p>
+      O jornal publica apenas o título, um resumo curto e, numa seção de Referências ao fim de
+      cada edição, o endereço da matéria original. O texto completo e os direitos pertencem a cada veículo. A ideia é levar o leitor
+      até eles, não substituí-los.
+    </p>
+  </section>
+{% endblock %}

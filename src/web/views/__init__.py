@@ -1,1 +1,3 @@
-from .page_views import Home, About
+from .page_views import Sobre
+
+__all__ = ["Sobre"]

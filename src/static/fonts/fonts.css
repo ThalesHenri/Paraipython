@@ -1,0 +1,28 @@
+/* Fontes locais (SIL Open Font License — ver OFL-*.txt nesta pasta).
+   Usadas pelo site e pelo WeasyPrint, para o PDF não depender do Google Fonts. */
+
+@font-face { font-family: "UnifrakturMaguntia"; font-weight: 400; font-style: normal;
+  src: url("unifrakturmaguntia-latin-400-normal.woff") format("woff"); }
+
+@font-face { font-family: "Playfair Display"; font-weight: 400; font-style: normal;
+  src: url("playfair-display-latin-400-normal.woff") format("woff"); }
+@font-face { font-family: "Playfair Display"; font-weight: 400; font-style: italic;
+  src: url("playfair-display-latin-400-italic.woff") format("woff"); }
+@font-face { font-family: "Playfair Display"; font-weight: 700; font-style: normal;
+  src: url("playfair-display-latin-700-normal.woff") format("woff"); }
+@font-face { font-family: "Playfair Display"; font-weight: 900; font-style: normal;
+  src: url("playfair-display-latin-900-normal.woff") format("woff"); }
+
+@font-face { font-family: "Old Standard TT"; font-weight: 400; font-style: normal;
+  src: url("old-standard-tt-latin-400-normal.woff") format("woff"); }
+@font-face { font-family: "Old Standard TT"; font-weight: 400; font-style: italic;
+  src: url("old-standard-tt-latin-400-italic.woff") format("woff"); }
+@font-face { font-family: "Old Standard TT"; font-weight: 700; font-style: normal;
+  src: url("old-standard-tt-latin-700-normal.woff") format("woff"); }
+
+@font-face { font-family: "Merriweather"; font-weight: 400; font-style: normal;
+  src: url("merriweather-latin-400-normal.woff") format("woff"); }
+@font-face { font-family: "Merriweather"; font-weight: 400; font-style: italic;
+  src: url("merriweather-latin-400-italic.woff") format("woff"); }
+@font-face { font-family: "Merriweather"; font-weight: 700; font-style: normal;
+  src: url("merriweather-latin-700-normal.woff") format("woff"); }

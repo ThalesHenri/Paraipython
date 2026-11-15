@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Marca de xícara de café no papel -->
+  <g fill="none" stroke="#6b3e1e" stroke-linecap="round">
+    <circle cx="100" cy="100" r="70" stroke-width="7" stroke-opacity="0.16"/>
+    <path d="M38 78 A70 70 0 0 1 150 44" stroke-width="3" stroke-opacity="0.22"/>
+    <path d="M168 112 A70 70 0 0 1 72 166" stroke-width="2" stroke-opacity="0.2"/>
+    <circle cx="101" cy="98" r="64" stroke-width="1.2" stroke-opacity="0.14"/>
+  </g>
+  <g fill="#6b3e1e">
+    <circle cx="178" cy="62" r="4" fill-opacity="0.16"/>
+    <circle cx="186" cy="74" r="2.2" fill-opacity="0.14"/>
+    <circle cx="24" cy="138" r="3" fill-opacity="0.14"/>
+  </g>
+</svg>

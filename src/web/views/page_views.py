@@ -1,7 +1,14 @@
+from django.utils import timezone
 from django.views.generic import TemplateView
 
-class Home(TemplateView):
-    template_name = 'index.html'
+from news.models import FonteNoticia
 
-class About(TemplateView):
-    template_name = 'about.html'
+
+class Sobre(TemplateView):
+    template_name = "web/sobre.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["fontes"] = FonteNoticia.objects.filter(ativa=True)
+        ctx["data_atual"] = timezone.localtime()
+        return ctx

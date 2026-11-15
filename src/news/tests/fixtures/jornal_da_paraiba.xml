@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/"
+     xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Jornal da Paraíba</title>
+    <link>https://jornaldaparaiba.com.br.br</link>
+    <description>Portal Jornal da Paraíba</description>
+    <language>pt-br</language>
+    <item>
+      <title><![CDATA[Mulher mata ex com golpe de faca e alega legítima defesa, em João Pessoa]]></title>
+      <link><![CDATA[https://jornaldaparaiba.com.br/cotidiano/mulher-mata-ex-com-golpe-de-faca-e-alega-legitima-defesa-em-joao-pessoa]]></link>
+      <description><![CDATA[Fl&#225;vio Fernandes/TV Cabo Branco Uma mulher de 42 anos matou o ex-companheiro com uma facada neste domingo, no bairro de Tamba&#250;.]]></description>
+      <category><![CDATA[Cotidiano]]></category>
+      <content:encoded><![CDATA[<figure class="mw-article-img-box"><picture><img src="https://cdn.jornaldaparaiba.com.br/img/x.jpg"></picture><figcaption>Flávio Fernandes/TV Cabo Branco</figcaption></figure><p>Uma mulher de 42 anos matou o ex-companheiro com uma facada neste domingo (15), na Avenida Antônio Lira, no bairro de Tambaú, em João Pessoa.</p><p>Segundo a Polícia Civil, os dois viviam em situação de rua e tinham histórico de brigas.</p>]]></content:encoded>
+      <pubDate>Sun, 15 Nov 2026 15:48:46 GMT</pubDate>
+    </item>
+    <item>
+      <title><![CDATA[Chuvas intensas: Inmet emite alerta para 32 cidades na Paraíba]]></title>
+      <link><![CDATA[https://jornaldaparaiba.com.br/meio-ambiente/alertas-inmet-paraiba]]></link>
+      <description><![CDATA[Divulga&#231;&#227;o / Inmet O Instituto Nacional de Meteorologia emitiu alerta amarelo.]]></description>
+      <category><![CDATA[Meio Ambiente]]></category>
+      <media:content url="https://cdn.jornaldaparaiba.com.br/img/inmet.jpg" type="image/jpeg" />
+      <content:encoded><![CDATA[<p>O Instituto Nacional de Meteorologia (Inmet) emitiu um alerta amarelo de chuvas intensas para 32 cidades da Paraíba, incluindo João Pessoa, válido até a manhã de segunda-feira.</p><figure class="mw-article-img-box"><img src="https://cdn.jornaldaparaiba.com.br/img/inmet.jpg"><figcaption>Divulgação / Inmet</figcaption></figure><p>A previsão é de chuva entre 20 e 30 mm/h ou até 50 mm/dia, com ventos de até 60 km/h.</p><ol><li>João Pessoa</li><li>Cabedelo</li></ol>]]></content:encoded>
+      <pubDate>Sun, 15 Nov 2026 15:05:00 GMT</pubDate>
+    </item>
+    <item>
+      <title><![CDATA[Cagepa anuncia interrupção no abastecimento em bairros da Zona Sul de João Pessoa]]></title>
+      <link><![CDATA[https://jornaldaparaiba.com.br/cotidiano/cagepa-interrupcao-abastecimento-zona-sul]]></link>
+      <description><![CDATA[Arquivo / Cagepa A Cagepa vai interromper o abastecimento de água na terça-feira.]]></description>
+      <category><![CDATA[Cotidiano]]></category>
+      <content:encoded><![CDATA[<p>A Companhia de Água e Esgotos da Paraíba (Cagepa) vai interromper o abastecimento de água em bairros da Zona Sul de João Pessoa na terça-feira (17) para manutenção em uma adutora.</p><p>Segundo a companhia, o serviço deve ser normalizado até o fim da tarde.</p>]]></content:encoded>
+      <pubDate>Sun, 15 Nov 2026 13:20:00 GMT</pubDate>
+    </item>
+    <item>
+      <title><![CDATA[Botafogo-PB vence o Treze e assume a liderança do Paraibano]]></title>
+      <link><![CDATA[https://jornaldaparaiba.com.br/esportes/botafogo-pb-vence-treze]]></link>
+      <description><![CDATA[Cristiano Santos / Botafogo-PB O Belo venceu o clássico por 2 a 1 no Almeidão.]]></description>
+      <category><![CDATA[Esportes]]></category>
+      <content:encoded><![CDATA[<p>O Botafogo-PB venceu o Treze por 2 a 1 neste sábado, no Estádio Almeidão, e assumiu a liderança isolada do Campeonato Paraibano.</p>]]></content:encoded>
+      <pubDate>Sat, 14 Nov 2026 23:10:00 GMT</pubDate>
+    </item>
+    <item>
+      <title><![CDATA[Festival de inverno antigo que já não deve entrar na edição]]></title>
+      <link><![CDATA[https://jornaldaparaiba.com.br/cultura/festival-antigo]]></link>
+      <description><![CDATA[Notícia antiga.]]></description>
+      <category><![CDATA[Cultura]]></category>
+      <pubDate>Mon, 09 Nov 2026 10:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>

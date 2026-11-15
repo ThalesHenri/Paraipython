@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+
+{% block title %}Expresso PB — O jornal matinal parahybano, tirado na hora{% endblock %}
+
+{% block content %}
+{% with destaque=edicao_hoje|default:ultima_edicao %}
+
+  <div class="edition-bar">
+    <span>Data: {{ destaque.data_edicao|date:"d/m/Y"|default:"---" }}</span>
+    <span>Edição Nº: {{ destaque.numero_edicao|default:"---" }}</span>
+    <span>Preço: um cafezinho (via Python)</span>
+  </div>
+
+  {% if edicao_hoje %}
+    <section class="hero-edition">
+      <div class="hero-info">
+        <h2>O Expresso de Hoje Saiu Quentinho!</h2>
+        <p>
+          O robô moeu os portais de João Pessoa às 06:00 e passou as principais notícias num jornal
+          de 3 colunas, no estilo retrô dos impressos de época. Curto, forte e pronto pra ler com o café.
+        </p>
+        <a href="{{ edicao_hoje.get_download_url }}" class="btn-download-hero">
+          <span>☕ Baixar o Expresso em PDF</span>
+        </a>
+        <a href="{{ edicao_hoje.get_pdf_url }}" target="_blank" class="btn-secondary">
+          🔍 Visualizar no navegador
+        </a>
+      </div>
+      <div class="hero-preview">
+        {% if edicao_hoje.capa %}
+          <a href="{{ edicao_hoje.get_pdf_url }}" target="_blank">
+            <img src="{{ edicao_hoje.get_capa_url }}" alt="Capa da edição Nº {{ edicao_hoje.numero_edicao }}">
+          </a>
+        {% else %}
+          <iframe src="{{ edicao_hoje.get_pdf_url }}#toolbar=0&navpanes=0&scrollbar=0" title="Pré-visualização do Expresso PB"></iframe>
+        {% endif %}
+      </div>
+    </section>
+  {% else %}
+    <section class="empty-state">
+      <h3>☕ O café das 06:00 ainda tá passando!</h3>
+      <p>O robô ainda está moendo os portais de João Pessoa. Volte em instantes ou fique com a edição anterior, que ainda tá morna.</p>
+      {% if ultima_edicao %}
+        <div style="margin-top: 20px;">
+          <a href="{{ ultima_edicao.get_download_url }}" class="btn-download-hero" style="display: inline-flex; width: auto;">
+            ☕ Baixar Última Edição Disponível ({{ ultima_edicao.data_edicao|date:"d/m/Y" }})
+          </a>
+        </div>
+      {% endif %}
+    </section>
+  {% endif %}
+
+  {% if manchetes %}
+    <section class="manchetes">
+      <h3>Nesta xícara</h3>
+      <ol>
+        {% for noticia in manchetes %}
+          <li>
+            <a href="{{ noticia.link }}" target="_blank" rel="noopener">{{ noticia.titulo }}</a>
+            <span class="fonte">— {{ noticia.fonte.nome }}</span>
+          </li>
+        {% endfor %}
+      </ol>
+    </section>
+  {% endif %}
+
+  <p class="link-acervo"><a href="{% url 'news:acervo' %}">📁 Acessar o Acervo de Edições Anteriores</a></p>
+
+{% endwith %}
+{% endblock %}

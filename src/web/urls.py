@@ -1,11 +1,9 @@
 from django.urls import path
+
 from . import views
 
-
+app_name = "web"
 
 urlpatterns = [
-    path('home/', views.Home.as_view(), name='home'),
-    path('about/', views.About.as_view(), name='about'),
+    path("sobre/", views.Sobre.as_view(), name="sobre"),
 ]
-
-

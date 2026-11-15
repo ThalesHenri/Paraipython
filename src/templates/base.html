@@ -4,23 +4,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Paraípython{% endblock %}</title>
-    
-    <!-- Google Fonts: Estética Clássica / Serifada (Playfair Display & Merriweather) -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&display=swap" rel="stylesheet">
+    <title>{% block title %}Expresso PB{% endblock %}</title>
 
-    <!-- CSS Global Opcional -->
-    <link rel="stylesheet" href="{% static 'css/style.css' %}" onerror="this.remove()">
+    <!-- Fontes locais (as mesmas do PDF), sem depender do Google Fonts -->
+    <link rel="stylesheet" href="{% static 'fonts/fonts.css' %}">
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
 
     {% block extra_head %}{% endblock %}
 </head>
 <body>
+<div class="newspaper-container">
 
-    <!-- CONTEÚDO PRINCIPAL DA PÁGINA -->
-    {% block content %}
-    {% endblock %}
+  <img class="mancha-cafe" src="{% static 'img/mancha-cafe.svg' %}" alt="" aria-hidden="true">
 
+  <header class="newspaper-header">
+    <div class="sub-top">Tirado na hora • João Pessoa - PB</div>
+    <h1>
+      <a href="{% url 'news:home' %}">
+        <img class="xicara" src="{% static 'img/xicara.svg' %}" alt="">
+        Expresso <span class="pb">PB</span>
+      </a>
+    </h1>
+    <div class="motto">"As notícias da capital paraibana, curtas e fortes como um expresso."</div>
+  </header>
+
+  <nav class="menu">
+    <a href="{% url 'news:home' %}">Edição do dia</a>
+    <a href="{% url 'news:acervo' %}">Acervo</a>
+    <a href="{% url 'web:sobre' %}">Sobre</a>
+  </nav>
+
+  {% block content %}{% endblock %}
+
+  <footer class="newspaper-footer">
+    <p>Expresso PB © {{ data_atual|date:"Y" }} — Passado com Django, WeasyPrint, muito café & amor pela Paraíba.</p>
+    <p class="aviso">Resumos e chamadas de portais paraibanos; as matérias completas e seus direitos pertencem aos respectivos veículos.</p>
+  </footer>
+
+</div>
 </body>
 </html>

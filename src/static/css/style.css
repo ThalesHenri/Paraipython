@@ -8,6 +8,7 @@
   --border-line: #3a322b;
   --font-heading: 'Playfair Display', 'Cinzel', 'Georgia', serif;
   --font-body: 'Merriweather', 'Georgia', serif;
+  --font-masthead: 'UnifrakturMaguntia', 'Playfair Display', serif;
 }
 
 body {
@@ -18,6 +19,7 @@ body {
   font-family: var(--font-body);
   margin: 0;
   padding: 0;
+  overflow-x: hidden; /* a mancha de café vaza do jornal de propósito */
 }
 
 /* Utilitários globais de impressão e jornal */
@@ -60,13 +62,46 @@ body {
 }
 
 .newspaper-header h1 {
-  font-family: var(--font-heading);
-  font-size: 3.8rem;
+  font-family: var(--font-masthead);
+  font-weight: 400;
+  font-size: 4.6rem;
   margin: 5px 0;
-  text-transform: uppercase;
   letter-spacing: 1px;
   line-height: 1;
   color: var(--ink-black);
+}
+
+.newspaper-header h1 a {
+  color: inherit;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.newspaper-header h1 .xicara {
+  width: 84px;
+  height: auto;
+  margin-top: -14px;
+}
+
+.newspaper-header h1 .pb {
+  font-family: var(--font-heading);
+  font-weight: 900;
+  font-size: 0.62em;
+  color: var(--accent-red);
+  letter-spacing: 1px;
+}
+
+/* Marca de xícara "esquecida" em cima do jornal */
+.mancha-cafe {
+  position: absolute;
+  top: -38px;
+  right: -46px;
+  width: 190px;
+  transform: rotate(18deg);
+  pointer-events: none;
+  opacity: 0.9;
 }
 
 .newspaper-header .motto {
@@ -186,6 +221,8 @@ body {
   height: 380px;
   border: 1px solid #ccc;
   object-fit: cover;
+  object-position: top;
+  display: block;
 }
 
 .empty-state {
@@ -212,7 +249,103 @@ body {
 }
 
 /* ==========================================
-   9. RESPONSIVIDADE (MOBILE)
+   9. MENU, MANCHETES, ACERVO E SOBRE
+   ================================---------- */
+.menu {
+  display: flex;
+  justify-content: center;
+  gap: 28px;
+  margin: -12px 0 22px;
+  font-family: var(--font-heading);
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+}
+
+.menu a,
+.link-acervo a,
+.texto-sobre a {
+  color: var(--ink-black);
+  font-weight: bold;
+}
+
+.menu a { text-decoration: none; border-bottom: 1px solid transparent; }
+.menu a:hover { border-bottom-color: var(--ink-black); }
+
+.manchetes {
+  margin-top: 30px;
+  border-top: 1px solid var(--border-line);
+  padding-top: 15px;
+}
+
+.manchetes h3,
+.texto-sobre h2,
+.texto-sobre h3 {
+  font-family: var(--font-heading);
+}
+
+.manchetes h3 { font-size: 1.4rem; margin: 0 0 10px; }
+.manchetes ol { margin: 0; padding-left: 22px; line-height: 1.7; }
+.manchetes li a { color: var(--ink-black); text-decoration: none; }
+.manchetes li a:hover { text-decoration: underline; }
+.manchetes .fonte { font-size: 0.8rem; font-style: italic; color: #665a4c; }
+
+.link-acervo { text-align: center; margin-top: 30px; }
+
+.acervo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 24px;
+}
+
+.acervo-item {
+  border: 1px solid var(--border-line);
+  background: rgba(255, 255, 255, 0.25);
+  box-shadow: 3px 3px 0 var(--ink-black);
+}
+
+.acervo-capa {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 240px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border-line);
+  background: var(--paper-bg);
+  color: var(--ink-black);
+  font-family: var(--font-masthead);
+  font-size: 2rem;
+  text-decoration: none;
+}
+
+.acervo-capa img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+
+.acervo-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  font-size: 0.85rem;
+}
+
+.acervo-info span { text-transform: capitalize; color: #4a4036; }
+.acervo-info a { color: var(--accent-red); font-weight: bold; margin-top: 4px; }
+
+.paginacao {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 30px;
+  font-size: 0.9rem;
+}
+
+.paginacao a { color: var(--ink-black); font-weight: bold; }
+
+.texto-sobre { line-height: 1.7; max-width: 680px; margin: 0 auto; }
+
+.newspaper-footer .aviso { font-size: 0.75rem; font-style: italic; }
+
+/* ==========================================
+   10. RESPONSIVIDADE (MOBILE)
    ================================---------- */
 @media (max-width: 768px) {
   .newspaper-container {
@@ -220,12 +353,30 @@ body {
     margin: 10px;
   }
   .newspaper-header h1 {
-    font-size: 2.5rem;
+    font-size: 2.6rem;
+  }
+  .newspaper-header h1 .xicara {
+    width: 46px;
+    margin-top: -8px;
+  }
+  .mancha-cafe {
+    width: 120px;
+    top: -24px;
+    right: -30px;
   }
   .hero-edition {
     grid-template-columns: 1fr;
   }
-  .hero-preview iframe {
-    height: 250px;
+  .hero-preview iframe,
+  .hero-preview img {
+    height: 300px;
+  }
+  .edition-bar {
+    flex-direction: column;
+    gap: 2px;
+  }
+  .menu {
+    gap: 16px;
+    font-size: 0.8rem;
   }
 }
