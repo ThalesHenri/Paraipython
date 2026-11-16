@@ -1,12 +1,14 @@
 import shutil
 import tempfile
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from news.models import FonteNoticia
 from news.services.coleta import coletar_fonte
+from news.services.montagem import montar_edicao
 
 FIXTURES = Path(__file__).parent / "fixtures"
 DIA_FIXTURES = date(2026, 11, 15)  # data das notícias dos feeds de exemplo
@@ -14,6 +16,16 @@ DIA_FIXTURES = date(2026, 11, 15)  # data das notícias dos feeds de exemplo
 
 def ler_fixture(nome):
     return (FIXTURES / nome).read_bytes()
+
+
+def as_horas(dia, hora, minuto=0):
+    """Momento em horário de João Pessoa (o robô "roda" nesse instante)."""
+    return timezone.make_aware(datetime(dia.year, dia.month, dia.day, hora, minuto))
+
+
+def montar(dia=DIA_FIXTURES, turno="noite", hora=19, **kwargs):
+    """Monta a edição como se o cron tivesse rodado no horário dado."""
+    return montar_edicao(dia, turno, agora=as_horas(dia, hora), **kwargs)
 
 
 class ParaipythonTestCase(TestCase):

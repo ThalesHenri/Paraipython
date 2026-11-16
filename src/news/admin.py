@@ -18,8 +18,9 @@ class FonteNoticiaAdmin(admin.ModelAdmin):
 
 @admin.register(Noticia)
 class NoticiaAdmin(admin.ModelAdmin):
-    list_display = ("titulo", "fonte", "categoria", "publicado_em", "coletado_em")
-    list_filter = ("fonte", "categoria", "publicado_em")
+    list_display = ("titulo", "tema", "fonte", "categoria", "publicado_em")
+    list_filter = ("tema", "fonte", "publicado_em")
+    list_editable = ("tema",)  # corrija o tema na própria lista
     search_fields = ("titulo", "resumo")
     date_hierarchy = "publicado_em"
     ordering = ("-publicado_em",)
@@ -29,14 +30,15 @@ class EdicaoNoticiaInline(admin.TabularInline):
     model = EdicaoNoticia
     extra = 0
     autocomplete_fields = ("noticia",)
-    fields = ("posicao", "noticia", "outras_fontes")
+    fields = ("posicao", "tema", "noticia", "outras_fontes")
 
 
 @admin.register(Edicao)
 class EdicaoAdmin(admin.ModelAdmin):
-    list_display = ("numero_edicao", "data_edicao", "total_noticias", "link_pdf", "atualizado_em")
-    ordering = ("-data_edicao",)
-    readonly_fields = ("data_criacao", "atualizado_em")
+    list_display = ("numero_edicao", "data_edicao", "turno", "total_noticias", "link_pdf", "fim_janela")
+    list_filter = ("turno",)
+    ordering = ("-data_edicao", "-turno")
+    readonly_fields = ("data_criacao", "atualizado_em", "fim_janela")
     inlines = [EdicaoNoticiaInline]
 
     @admin.display(description="Notícias")

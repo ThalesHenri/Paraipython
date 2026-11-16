@@ -1,8 +1,8 @@
 """Regera o PDF de uma edição já montada, sem coletar nada.
 
 Útil para ajustar o layout do template e ver o resultado:
-    python manage.py generate_pdf                 # edição mais recente
-    python manage.py generate_pdf --data 2026-11-15
+    python manage.py generate_pdf                              # edição mais recente
+    python manage.py generate_pdf --data 2026-11-15 --turno noite
     python manage.py generate_pdf --html saida.html   # também grava o HTML para depurar no navegador
 """
 from datetime import date
@@ -19,14 +19,21 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--data", help="Data da edição (AAAA-MM-DD). Padrão: a mais recente.")
+        parser.add_argument("--turno", choices=Edicao.Turno.values,
+                            help="manha ou noite. Com --data e sem --turno: a mais recente do dia.")
         parser.add_argument("--html", help="Caminho para salvar também o HTML renderizado.")
 
     def handle(self, *args, **opts):
         if opts["data"]:
             try:
-                edicao = Edicao.objects.get(data_edicao=date.fromisoformat(opts["data"]))
-            except (ValueError, Edicao.DoesNotExist):
-                raise CommandError(f"Nenhuma edição em {opts['data']}.")
+                edicoes = Edicao.objects.filter(data_edicao=date.fromisoformat(opts["data"]))
+            except ValueError:
+                raise CommandError("Use a data no formato AAAA-MM-DD.")
+            if opts["turno"]:
+                edicoes = edicoes.filter(turno=opts["turno"])
+            edicao = edicoes.first()
+            if edicao is None:
+                raise CommandError(f"Nenhuma edição em {opts['data']} {opts['turno'] or ''}".strip() + ".")
         else:
             edicao = Edicao.objects.first()
             if edicao is None:

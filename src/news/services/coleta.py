@@ -19,6 +19,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from news.models import FonteNoticia, Noticia
+from news.services.temas import classificar
 
 logger = logging.getLogger(__name__)
 
@@ -86,13 +87,87 @@ def limpar_texto(texto):
     return re.sub(r"\s+", " ", texto).strip()
 
 
-def resumir(texto, limite=None):
-    """Corta o texto no limite sem quebrar palavra e fecha com reticências."""
+# ---------------------------------------------------------------------------
+# Resumo por frases (sem reticências)
+# ---------------------------------------------------------------------------
+# Palavras que terminam com ponto mas não encerram a frase ("Sr. Fulano", "Av. Epitácio").
+ABREVIACOES = {
+    "sr", "sra", "srta", "dr", "dra", "prof", "profa", "av", "jr", "dep", "gov", "pres",
+    "min", "sen", "ver", "cel", "sgt", "cap", "ten", "gen", "maj", "exmo", "exma", "vol",
+    "pag", "art", "inc", "ltda", "cia", "nº", "no", "n", "tel", "aprox", "obs", "ex",
+}
+FIM_DE_FRASE = re.compile(r"[.!?…]+[\"”’)]*\s+")
+PONTUACAO_FINAL = re.compile(r"[.!?…][\"”’)]*$")
+
+
+def dividir_frases(texto):
+    """Divide em frases sem confundir abreviações, iniciais ("J. Silva") e números."""
+    frases, inicio = [], 0
+    for m in FIM_DE_FRASE.finditer(texto):
+        fim = m.end()
+        proximo = texto[fim:fim + 1]
+        if not proximo or not (proximo.isupper() or proximo.isdigit() or proximo in "\"“'‘"):
+            continue
+        palavra = re.search(r"(\S+)$", texto[:m.start()])
+        anterior = palavra.group(1).lower().strip("(\"“") if palavra else ""
+        if anterior in ABREVIACOES or (len(anterior) == 1 and anterior.isalpha()):
+            continue
+        frases.append(texto[inicio:fim].strip())
+        inicio = fim
+    resto = texto[inicio:].strip()
+    if resto:
+        frases.append(resto)
+    return frases
+
+
+def _fechar_frase(texto):
+    """Garante pontuação final ("... de brigas" → "... de brigas.")."""
+    texto = texto.strip().rstrip(",;:-–— ")
+    if not PONTUACAO_FINAL.search(texto):
+        texto += "."
+    return texto
+
+
+def resumir(texto, limite=None, teto=None):
+    """Junta frases inteiras até o limite. Se a 1ª frase sozinha passar do limite,
+    aceita até o teto para não cortá-la. Devolve ``None`` se nem isso couber."""
     limite = limite or _config("TAMANHO_RESUMO")
+    teto = teto or _config("TETO_RESUMO")
+    texto = (texto or "").strip()
+    if not texto:
+        return None
     if len(texto) <= limite:
-        return texto
+        return _fechar_frase(texto)
+
+    frases = dividir_frases(texto)
+    resumo = ""
+    for frase in frases:
+        candidato = f"{resumo} {frase}".strip()
+        if len(candidato) > limite:
+            break
+        resumo = candidato
+    if resumo:
+        return _fechar_frase(resumo)
+    if len(frases[0]) <= teto:
+        return _fechar_frase(frases[0])
+    return None
+
+
+def cortar_com_reticencias(texto, limite=None):
+    """Último recurso, quando nenhuma fonte tem frase que caiba no teto."""
+    limite = limite or _config("TAMANHO_RESUMO")
     corte = texto[:limite].rsplit(" ", 1)[0].rstrip(",;:-–— ")
     return corte + "…"
+
+
+def melhor_resumo(candidatos):
+    """Tenta cada texto candidato, na ordem de preferência, até um fechar a frase."""
+    candidatos = [c for c in candidatos if c]
+    for texto in candidatos:
+        resumo = resumir(texto)
+        if resumo:
+            return resumo
+    return cortar_com_reticencias(candidatos[0]) if candidatos else ""
 
 
 def _paragrafos_do_conteudo(html_conteudo):
@@ -104,24 +179,33 @@ def _paragrafos_do_conteudo(html_conteudo):
     return " ".join(p for p in paragrafos if p)
 
 
-def _resumo_do_item(item, titulo):
-    # 1) G1: <atom:subtitle> é a linha fina, o melhor resumo possível.
-    subtitulo = limpar_texto(item.get("subtitle", ""))
-    if subtitulo:
-        return resumir(subtitulo)
+def _sem_titulo_no_inicio(texto, titulo):
+    """O description do G1 repete o título no começo; tiramos."""
+    if titulo and texto.lower().startswith(titulo.lower()):
+        return texto[len(titulo):].strip()
+    return texto
 
+
+def candidatos_do_conteudo(conteudo_html, titulo):
+    """Textos que podem virar resumo a partir do HTML guardado em ``conteudo_bruto``."""
+    return [
+        _paragrafos_do_conteudo(conteudo_html),
+        _sem_titulo_no_inicio(limpar_texto(conteudo_html), titulo),
+    ]
+
+
+def _resumo_do_item(item, titulo):
+    candidatos = [
+        # 1) G1: <atom:subtitle> é a linha fina, o melhor resumo possível.
+        limpar_texto(item.get("subtitle", "")),
+    ]
     # 2) Jornal da Paraíba: o <description> começa com o crédito da foto,
     #    então preferimos os parágrafos do content:encoded.
     for conteudo in item.get("content", []):
-        texto = _paragrafos_do_conteudo(conteudo.get("value", ""))
-        if texto:
-            return resumir(texto)
-
-    # 3) Último recurso: o description, tirando o título repetido no início (padrão do G1).
-    texto = limpar_texto(item.get("summary", ""))
-    if texto.lower().startswith(titulo.lower()):
-        texto = texto[len(titulo):].strip()
-    return resumir(texto)
+        candidatos.append(_paragrafos_do_conteudo(conteudo.get("value", "")))
+    # 3) Último recurso: o description, sem o título repetido no início (padrão do G1).
+    candidatos.append(_sem_titulo_no_inicio(limpar_texto(item.get("summary", "")), titulo))
+    return melhor_resumo(candidatos)
 
 
 def _data_publicacao(item, agora):
@@ -158,12 +242,14 @@ def extrair_itens(conteudo_xml, agora=None):
         if categoria.upper() == "G1":  # o G1 põe o nome do portal como categoria
             categoria = ""
         conteudo = item.get("content", [{}])[0].get("value", "") or item.get("summary", "")
+        resumo = _resumo_do_item(item, titulo)
         itens.append(
             {
                 "titulo": titulo[:300],
                 "link": link[:500],
-                "resumo": _resumo_do_item(item, titulo),
+                "resumo": resumo,
                 "categoria": categoria[:100],
+                "tema": classificar(titulo, resumo, categoria, link),
                 "conteudo_bruto": conteudo,
                 "publicado_em": _data_publicacao(item, agora),
             }

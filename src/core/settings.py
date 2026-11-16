@@ -178,14 +178,23 @@ X_FRAME_OPTIONS = "SAMEORIGIN"
 
 # --- Expresso PB (configurações do robô; o nome interno do projeto segue "paraipython") ---
 PARAIPYTHON = {
-    # Quantas notícias entram em cada edição (1 manchete + o resto nas colunas)
-    "NOTICIAS_POR_EDICAO": int(os.getenv("PARAIPYTHON_NOTICIAS_POR_EDICAO", 13)),
-    # Janela de horas olhando para trás a partir do momento da geração
+    # Horário de cada edição (o mesmo que você agenda no cron do cPanel)
+    "HORARIO_MANHA": os.getenv("PARAIPYTHON_HORARIO_MANHA", "06:00"),
+    "HORARIO_NOITE": os.getenv("PARAIPYTHON_HORARIO_NOITE", "19:00"),
+    # Notícias por edição (manchete incluída) e teto por tema
+    "NOTICIAS_POR_EDICAO": int(os.getenv("PARAIPYTHON_NOTICIAS_POR_EDICAO", 16)),
+    "MAX_POR_TEMA": int(os.getenv("PARAIPYTHON_MAX_POR_TEMA", 4)),
+    # Janela da 1ª edição (quando não existe edição anterior) e teto da janela
+    # (se o robô falhar um dia, a edição seguinte não vai além disso)
     "JANELA_HORAS": int(os.getenv("PARAIPYTHON_JANELA_HORAS", 24)),
+    "JANELA_MAXIMA_HORAS": int(os.getenv("PARAIPYTHON_JANELA_MAXIMA_HORAS", 30)),
+    # Quantas edições anteriores são comparadas para não repetir a mesma pauta
+    "EDICOES_COMPARADAS": int(os.getenv("PARAIPYTHON_EDICOES_COMPARADAS", 4)),
     # Similaridade de título (0 a 1) a partir da qual duas notícias são "a mesma pauta"
     "LIMIAR_DUPLICADA": float(os.getenv("PARAIPYTHON_LIMIAR_DUPLICADA", 0.6)),
-    # Tamanho máximo do resumo de cada notícia (caracteres)
+    # Resumo: alvo em caracteres e teto para conseguir terminar a frase
     "TAMANHO_RESUMO": int(os.getenv("PARAIPYTHON_TAMANHO_RESUMO", 320)),
+    "TETO_RESUMO": int(os.getenv("PARAIPYTHON_TETO_RESUMO", 450)),
     "TIMEOUT_HTTP": int(os.getenv("PARAIPYTHON_TIMEOUT_HTTP", 20)),
     "USER_AGENT": "ExpressoPB/1.0 (+agregador de manchetes de Joao Pessoa)",
 }

@@ -12,6 +12,7 @@ from django.template.loader import render_to_string
 from django.utils import timezone, translation
 
 from news.models import Edicao
+from news.temas import Tema
 
 logger = logging.getLogger(__name__)
 
@@ -29,25 +30,53 @@ def romano(numero):
     return saida
 
 
+def _hora(texto_hhmm):
+    hora, minuto = texto_hhmm.split(":")
+    return f"{int(hora):02d}h{minuto}"
+
+
 def montar_contexto(edicao):
+    """Manchete no topo e o resto agrupado em seções (temas), na ordem do jornal.
+
+    Os números [n] seguem a ordem em que as notícias aparecem no PDF.
+    """
+    rotulos = dict(Tema.choices)
+    relacoes = list(edicao.edicaonoticia_set.select_related("noticia__fonte").order_by("posicao"))
+
     itens = []
-    relacoes = edicao.edicaonoticia_set.select_related("noticia__fonte").order_by("posicao")
     for numero, rel in enumerate(relacoes, start=1):
         itens.append(
             {
-                "ref": numero,  # número da notícia na seção de Referências
+                "ref": numero,
                 "noticia": rel.noticia,
+                "tema": rel.tema,
+                "tema_nome": rotulos.get(rel.tema, rel.tema),
                 "outras_fontes": rel.outras_fontes,
                 "outros_links": rel.outros_links,
             }
         )
-    fontes = sorted({i["noticia"].fonte.nome for i in itens})
+
+    manchete = itens[0] if itens else None
+    secoes = []
+    for item in itens[1:]:
+        if not secoes or secoes[-1]["slug"] != item["tema"]:
+            secoes.append({"slug": item["tema"], "nome": item["tema_nome"], "itens": []})
+        secoes[-1]["itens"].append(item)
+    for secao in secoes:
+        # 1 notícia: largura total; 2 notícias: 2 colunas; 3 ou mais: 3 colunas.
+        secao["colunas"] = min(len(secao["itens"]), 3)
+
+    cfg = settings.PARAIPYTHON
+    noite = edicao.eh_noite
     return {
         "edicao": edicao,
-        "manchete": itens[0] if itens else None,
-        "demais": itens[1:],
+        "noite": noite,
+        "turno_nome": edicao.get_turno_display(),
+        "hora_turno": _hora(cfg["HORARIO_NOITE"] if noite else cfg["HORARIO_MANHA"]),
+        "manchete": manchete,
+        "secoes": secoes,
         "referencias": itens,
-        "fontes": fontes,
+        "fontes": sorted({i["noticia"].fonte.nome for i in itens}),
         "gerado_em": timezone.localtime(),
         "anno": romano(max(edicao.data_edicao.year - 2025, 1)),  # o Expresso PB nasceu em 2026: Anno I
     }
@@ -98,7 +127,7 @@ def _salvar_sobrescrevendo(campo, nome, conteudo):
 def gerar_pdf_da_edicao(edicao: Edicao):
     """Gera o PDF (e a miniatura) e grava nos campos da edição."""
     pdf_bytes = renderizar_pdf(edicao)
-    nome_base = f"expresso-pb-{edicao.data_edicao.isoformat()}"
+    nome_base = f"expresso-pb-{edicao.data_edicao.isoformat()}-{edicao.turno}"
 
     _salvar_sobrescrevendo(edicao.arquivo_pdf, f"{nome_base}.pdf", pdf_bytes)
     capa = gerar_capa_png(pdf_bytes)

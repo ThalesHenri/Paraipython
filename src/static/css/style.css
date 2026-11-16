@@ -346,6 +346,36 @@ body {
 
 .menu .menu-apoie { color: var(--accent-red); }
 
+/* Selo do turno (☀ manhã / ☾ noite) */
+.selo-turno {
+  display: inline-block;
+  align-self: flex-start;
+  font-family: var(--font-heading);
+  font-size: 0.75rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  padding: 3px 10px;
+  border: 1px solid var(--ink-black);
+  background: var(--paper-bg);
+  color: var(--ink-black);
+  margin-bottom: 10px;
+}
+
+.selo-turno.noite { background: var(--ink-black); color: var(--paper-bg); }
+
+.acervo-dia { margin-bottom: 30px; }
+
+.acervo-dia h3 {
+  font-family: var(--font-heading);
+  font-size: 1.1rem;
+  border-bottom: 1px solid var(--border-line);
+  padding-bottom: 6px;
+  margin: 0 0 14px;
+}
+
+.acervo-info .selo-turno { margin-bottom: 4px; text-transform: uppercase; white-space: nowrap; letter-spacing: 0.5px; font-size: 0.7rem; }
+
 /* ==========================================
    10. APOIE (PIX E LINK DE APOIO)
    ================================---------- */

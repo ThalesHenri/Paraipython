@@ -5,28 +5,34 @@
 {% block content %}
   <div class="edition-bar">
     <span>Acervo: as xícaras anteriores</span>
-    <span>{{ paginator.count|default:0 }} edição{{ paginator.count|pluralize:"ões" }}</span>
+    <span>{{ paginator.count|default:0 }} {% if paginator.count == 1 %}edição{% else %}edições{% endif %}</span>
   </div>
 
   {% if edicoes %}
-    <section class="acervo-grid">
-      {% for edicao in edicoes %}
-        <article class="acervo-item">
-          <a href="{{ edicao.get_pdf_url }}" target="_blank" class="acervo-capa">
-            {% if edicao.capa %}
-              <img src="{{ edicao.get_capa_url }}" alt="Capa da edição Nº {{ edicao.numero_edicao }}" loading="lazy">
-            {% else %}
-              <span>Nº {{ edicao.numero_edicao }}</span>
-            {% endif %}
-          </a>
-          <div class="acervo-info">
-            <strong>Nº {{ edicao.numero_edicao }}</strong>
-            <span>{{ edicao.data_edicao|date:"l, d/m/Y" }}</span>
-            <a href="{{ edicao.get_download_url }}">📥 Baixar PDF</a>
-          </div>
-        </article>
-      {% endfor %}
-    </section>
+    {% regroup edicoes by data_edicao as dias %}
+    {% for dia in dias %}
+      <section class="acervo-dia">
+        <h3>{{ dia.grouper|date:"l, j \d\e F \d\e Y"|capfirst }}</h3>
+        <div class="acervo-grid">
+          {% for edicao in dia.list %}
+            <article class="acervo-item">
+              <a href="{{ edicao.get_pdf_url }}" target="_blank" class="acervo-capa">
+                {% if edicao.capa %}
+                  <img src="{{ edicao.get_capa_url }}" alt="Capa da edição Nº {{ edicao.numero_edicao }}" loading="lazy">
+                {% else %}
+                  <span>Nº {{ edicao.numero_edicao }}</span>
+                {% endif %}
+              </a>
+              <div class="acervo-info">
+                <span class="selo-turno {{ edicao.turno }}">{% if edicao.eh_noite %}☾{% else %}☀{% endif %} {{ edicao.get_turno_display }}</span>
+                <strong>Nº {{ edicao.numero_edicao }}</strong>
+                <a href="{{ edicao.get_download_url }}">📥 Baixar PDF</a>
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      </section>
+    {% endfor %}
 
     {% if is_paginated %}
       <nav class="paginacao">

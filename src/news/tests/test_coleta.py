@@ -4,7 +4,9 @@ from unittest import mock
 import requests
 
 from news.models import FonteNoticia, Noticia
-from news.services.coleta import coletar_fonte, extrair_itens, resumir
+from news.services.coleta import (
+    coletar_fonte, dividir_frases, extrair_itens, melhor_resumo, resumir,
+)
 
 from .base import ParaipythonTestCase, ler_fixture
 
@@ -49,11 +51,39 @@ class ExtrairItensJornalDaParaibaTest(ParaipythonTestCase):
 
 
 class UtilidadesTest(ParaipythonTestCase):
-    def test_resumir_corta_sem_quebrar_palavra(self):
-        texto = "palavra " * 100
-        resumo = resumir(texto.strip(), limite=50)
-        self.assertLessEqual(len(resumo), 51)
-        self.assertTrue(resumo.endswith("palavra…"))
+    def test_dividir_frases_respeita_abreviacoes_e_numeros(self):
+        texto = "O Sr. Silva mora na Av. Epitácio. Pagou R$ 1.500 ao dr. J. Souza! Depois saiu."
+        self.assertEqual(dividir_frases(texto), [
+            "O Sr. Silva mora na Av. Epitácio.", "Pagou R$ 1.500 ao dr. J. Souza!", "Depois saiu.",
+        ])
+
+    def test_resumo_junta_frases_inteiras_sem_reticencias(self):
+        texto = "Primeira frase curta. " + "Segunda frase " + "longa " * 60 + "fim."
+        resumo = resumir(texto, limite=100, teto=150)
+        self.assertEqual(resumo, "Primeira frase curta.")
+
+    def test_primeira_frase_longa_usa_o_teto(self):
+        frase = "Uma frase " + "comprida " * 40 + "termina aqui."  # ~370 caracteres
+        self.assertEqual(resumir(frase + " Outra.", limite=320, teto=450), frase)
+
+    def test_frase_maior_que_o_teto_devolve_none(self):
+        self.assertIsNone(resumir("palavra " * 100, limite=50, teto=80))
+
+    def test_fecha_frase_sem_ponto(self):
+        self.assertEqual(resumir("Os dois tinham histórico de brigas"), "Os dois tinham histórico de brigas.")
+
+    def test_melhor_resumo_tenta_a_proxima_fonte(self):
+        longo = "palavra " * 100
+        self.assertEqual(melhor_resumo([longo, "Resumo alternativo"]), "Resumo alternativo.")
+
+    def test_reticencias_so_como_ultimo_recurso(self):
+        self.assertTrue(melhor_resumo(["palavra " * 100]).endswith("…"))
+
+    def test_feeds_de_exemplo_sem_reticencias(self):
+        for nome in ("g1_pb.xml", "jornal_da_paraiba.xml"):
+            for item in extrair_itens(ler_fixture(nome), agora=AGORA):
+                self.assertFalse(item["resumo"].endswith("…"), item["resumo"])
+                self.assertRegex(item["resumo"], r"[.!?…][\"”’)]*$")
 
     def test_data_no_futuro_vira_momento_da_coleta(self):
         xml = b"""<rss version="2.0"><channel><title>x</title><item><title>Teste</title>
@@ -87,3 +117,29 @@ class ColetarFonteTest(ParaipythonTestCase):
         resultado = coletar_fonte(pbagora, b"<html></html>")
         self.assertEqual(resultado.novas, 0)
         self.assertFalse(resultado.ok)
+
+
+class ReprocessarNoticiasTest(ParaipythonTestCase):
+    def test_refaz_resumo_com_reticencias_e_tema(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        noticia = Noticia.objects.create(
+            titulo="Homem é preso suspeito de assalto em João Pessoa",
+            link="https://exemplo.com/assalto",
+            resumo="A polícia prendeu um homem suspeito de assaltar uma farmácia no bairro…",
+            conteudo_bruto="<p>A polícia prendeu um homem suspeito de assaltar uma farmácia no bairro "
+                           "dos Bancários. Ele foi levado para a Central de Polícia.</p>",
+            publicado_em=AGORA,
+            fonte=self.g1,
+            tema="cidade",
+        )
+        call_command("reprocessar_noticias", stdout=StringIO())
+        noticia.refresh_from_db()
+        self.assertEqual(
+            noticia.resumo,
+            "A polícia prendeu um homem suspeito de assaltar uma farmácia no bairro dos Bancários. "
+            "Ele foi levado para a Central de Polícia.",
+        )
+        self.assertEqual(noticia.tema, "policia")

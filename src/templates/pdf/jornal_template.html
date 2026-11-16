@@ -11,7 +11,7 @@
     margin: 13mm 12mm 16mm 12mm;
     background: #f4ecd8;
     @bottom-left {
-      content: "Expresso PB · Edição Nº {{ edicao.numero_edicao }} · tirada na hora";
+      content: "Expresso PB · Nº {{ edicao.numero_edicao }} · {{ turno_nome }}";
       font: italic 7.5pt "Old Standard TT", serif; color: #5a4f43;
     }
     @bottom-right {
@@ -62,10 +62,42 @@
                      color: var(--vermelho); }
   .manchete .assinatura { text-align: right; margin-top: 5pt; font-size: 7.6pt; }
 
-  /* ---------- Demais notícias em 3 colunas ---------- */
+  /* ---------- Sumário ---------- */
+  .sumario { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline;
+             gap: 2pt 0; margin: -3pt 0 10pt; padding: 4pt 6pt; border-bottom: 0.6pt solid var(--fio);
+             font-size: 8pt; }
+  .sumario .rotulo { font-family: "UnifrakturMaguntia", serif; font-size: 11pt; margin-right: 6pt; }
+  .sumario a { color: var(--tinta); text-decoration: none; padding: 0 6pt;
+               border-left: 0.5pt solid #b9ab8c; }
+  .sumario a:first-of-type { border-left: none; }
+  .sumario a::after { content: " · p. " target-counter(attr(href), page);
+                      font-style: italic; color: var(--vermelho); }
+
+  /* ---------- Seções (temas) ---------- */
+  .secao { margin-bottom: 4pt; }
+  .faixa { display: flex; align-items: center; justify-content: center; gap: 8pt;
+           border-top: 2.4pt double var(--fio); border-bottom: 0.6pt solid var(--fio);
+           padding: 3pt 0 2pt; margin: 6pt 0 8pt; break-after: avoid; }
+  .faixa h2 { font-family: "UnifrakturMaguntia", serif; font-weight: 400; font-size: 21pt;
+              line-height: 1; margin: 0; letter-spacing: 0.5pt; }
+  .faixa img { width: 8mm; }
+  .faixa .qtd { font-size: 6.8pt; font-style: italic; color: #4a4036; }
+
   .colunas { columns: 3; column-gap: 12pt; column-rule: 0.5pt solid #b9ab8c; }
+  .colunas.c2 { columns: 2; column-gap: 14pt; }
+  .colunas.c1 { columns: 1; }
+  .colunas.c1 .materia .texto { columns: 2; column-gap: 14pt; column-rule: 0.5pt solid #b9ab8c; }
+
+  /* Abre de seção: a notícia mais relevante do tema ganha destaque */
+  .materia.abre h2 { font-weight: 900; font-size: 16pt; line-height: 1.08; }
+  .materia.abre .texto { font-size: 10.2pt; line-height: 1.36; }
+  /* Capitular elevada num <span> de verdade: o ::first-letter do WeasyPrint dentro de
+     colunas pode travar (float não é suportado e às vezes entra em recursão). */
+  .capitular { font-family: "Playfair Display", serif; font-weight: 900; font-size: 19pt;
+               line-height: 1; color: var(--vermelho); }
   .materia { break-inside: avoid; padding-bottom: 7pt; margin-bottom: 7pt;
              border-bottom: 0.5pt solid #b9ab8c; }
+  .materia:last-child { border-bottom: none; }
   .chapeu { font-size: 6.8pt; text-transform: uppercase; letter-spacing: 1.4pt;
             color: var(--vermelho); font-weight: 700; }
   .materia h2 { font-family: "Playfair Display", serif; font-weight: 700; font-size: 12.5pt;
@@ -89,7 +121,7 @@
   .referencias .url { font-size: 6.4pt; color: #4a4036; word-break: break-all; hyphens: none; }
 
   /* ---------- Expediente ---------- */
-  .expediente { break-inside: avoid; margin-top: 4pt; border: 1.2pt double var(--fio);
+  .expediente { break-inside: avoid; margin-top: 8pt; border: 1.2pt double var(--fio);
                 padding: 6pt 7pt; font-size: 7.4pt; line-height: 1.35; text-align: justify; }
   .expediente h3 { font-family: "UnifrakturMaguntia", serif; font-weight: 400; font-size: 13pt;
                    text-align: center; margin: 0 0 3pt; }
@@ -106,18 +138,28 @@
   <img class="mancha" src="img/mancha-cafe.svg" alt="">
   <div class="cabecalho">
     <div class="orelha">
-      <img src="img/xicara.svg" alt="">
-      Tirado na hora
+      {% if noite %}
+        <img src="img/xicara-noite.svg" alt="">
+        Passado às {{ hora_turno }}
+      {% else %}
+        <img src="img/xicara.svg" alt="">
+        Tirado na hora
+      {% endif %}
     </div>
     <h1 class="titulo-jornal">Expresso <span class="pb">PB</span></h1>
     <div class="orelha caixa">
-      <strong>Edição forte</strong>
-      Curto · sem açúcar<br>moído às 06h00<br>em João Pessoa
+      {% if noite %}
+        <strong>Edição Noturna</strong>
+        O dia em resumo<br>pra ler em casa<br>{{ hora_turno }} · João Pessoa
+      {% else %}
+        <strong>Edição forte</strong>
+        Curto · sem açúcar<br>moído às {{ hora_turno }}<br>em João Pessoa
+      {% endif %}
     </div>
   </div>
   <p class="lema">“As notícias da capital paraibana, curtas e fortes como um expresso.”</p>
   <div class="barra-edicao">
-    <span>Nº {{ edicao.numero_edicao }}</span>
+    <span>Nº {{ edicao.numero_edicao }} · {{ turno_nome }}</span>
     <span class="data">{{ edicao.data_edicao|date:"l, j \d\e F \d\e Y" }}</span>
     <span>Preço: um cafezinho</span>
   </div>
@@ -125,7 +167,7 @@
 
 {% if manchete %}
 <section class="manchete">
-  {% if manchete.noticia.categoria %}<div class="chapeu">{{ manchete.noticia.categoria }}</div>{% endif %}
+  <div class="chapeu">{{ manchete.tema_nome }}</div>
   <h1>{{ manchete.noticia.titulo }}</h1>
   <div class="texto"><p>{{ manchete.noticia.resumo }}</p></div>
   <div class="assinatura">
@@ -137,30 +179,46 @@
 </section>
 {% endif %}
 
-<section class="colunas">
-  {% for item in demais %}
-  <article class="materia">
-    {% if item.noticia.categoria %}<div class="chapeu">{{ item.noticia.categoria }}</div>{% endif %}
-    <h2>{{ item.noticia.titulo }}</h2>
-    <div class="texto"><p>{{ item.noticia.resumo }}</p></div>
-    <div class="assinatura">
-      <span>Na íntegra em <strong>{{ item.noticia.fonte.nome }}</strong>
-        {% if item.outras_fontes %}· também em {{ item.outras_fontes }}{% endif %}
-        · {{ item.noticia.publicado_em|date:"d/m H\hi" }}
-        <span class="ref">[{{ item.ref }}]</span></span>
-    </div>
-  </article>
-  {% endfor %}
+{% if secoes %}
+<nav class="sumario">
+  <span class="rotulo">Nesta edição</span>
+  {% for secao in secoes %}<a href="#secao-{{ secao.slug }}">{{ secao.nome }}</a>{% endfor %}
+</nav>
+{% endif %}
 
-  <aside class="expediente">
-    <h3>Expediente</h3>
-    O Expresso PB é passado na hora por um robô em Python, com grãos dos portais
-    {{ fontes|join:", " }}. Os textos aqui são resumos e chamadas; as matérias
-    completas e seus direitos pertencem aos respectivos veículos. O número entre
-    colchetes ao fim de cada notícia leva ao endereço da matéria original, na seção de Referências.
-    Edição tirada em {{ gerado_em|date:"d/m/Y \à\s H\hi" }}. Sirva-se.
-  </aside>
+{% for secao in secoes %}
+<section class="secao" id="secao-{{ secao.slug }}">
+  <div class="faixa">
+    <img src="img/grao.svg" alt="">
+    <h2>{{ secao.nome }}</h2>
+    <img src="img/grao.svg" alt="" style="transform: scaleX(-1)">
+  </div>
+  <div class="colunas c{{ secao.colunas }}">
+    {% for item in secao.itens %}
+    <article class="materia{% if forloop.first %} abre{% endif %}">
+      <h2>{{ item.noticia.titulo }}</h2>
+      <div class="texto"><p>{% if forloop.first %}<span class="capitular">{{ item.noticia.resumo|slice:":1" }}</span>{{ item.noticia.resumo|slice:"1:" }}{% else %}{{ item.noticia.resumo }}{% endif %}</p></div>
+      <div class="assinatura">
+        <span>Na íntegra em <strong>{{ item.noticia.fonte.nome }}</strong>
+          {% if item.outras_fontes %}· também em {{ item.outras_fontes }}{% endif %}
+          · {{ item.noticia.publicado_em|date:"d/m H\hi" }}
+          <span class="ref">[{{ item.ref }}]</span></span>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
 </section>
+{% endfor %}
+
+<aside class="expediente">
+  <h3>Expediente</h3>
+  O Expresso PB é passado na hora por um robô em Python, com grãos dos portais
+  {{ fontes|join:", " }}, em duas edições: a da manhã, pra ler ao acordar, e a noturna, pra ler
+  ao voltar pra casa. Os textos aqui são resumos e chamadas; as matérias completas e seus
+  direitos pertencem aos respectivos veículos. O número entre colchetes ao fim de cada notícia
+  leva ao endereço da matéria original, na seção de Referências.
+  Edição tirada em {{ gerado_em|date:"d/m/Y \à\s H\hi" }}. Sirva-se.
+</aside>
 
 <section class="referencias">
   <h3>Referências</h3>

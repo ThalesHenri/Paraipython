@@ -10,7 +10,7 @@ O **Expresso PB** é o seu jornal automatizado de João Pessoa: curto, forte e t
 
 > O repositório e o pacote Python continuam se chamando `paraipython` (nome de batismo do projeto). O que mudou foi a marca do jornal.
 
-Enquanto você dorme o sono dos justos, um *management command* em Django acorda às 06:00 em ponto, varre os principais portais da capital paraibana via RSS, junta as pautas repetidas, escolhe as mais repercutidas, empacota tudo numa diagramação retrô de respeito (estilo jornal de 1920) e serve um **PDF em alta qualidade** pronto pra acompanhar o cafezinho.
+São **duas edições por dia**: a **Edição da Manhã** (06:00), pra ler ao acordar, e a **Edição Noturna** (19:00), pra ler ao voltar pra casa. Em cada uma, um *management command* em Django varre os principais portais da capital paraibana via RSS, junta as pautas repetidas, separa tudo por tema (Cidade, Polícia, Política, Economia, Educação, Saúde, Clima & Ambiente, Esportes, Cultura), empacota numa diagramação retrô de respeito (estilo jornal de 1920) e serve um **PDF em alta qualidade** pronto pra acompanhar o cafezinho.
 
 Tudo isso rodando nas manhas no seu servidor cPanel, porque desenvolvedor experiente não sofre em terreno desconhecido.
 
@@ -19,20 +19,26 @@ Tudo isso rodando nas manhas no seu servidor cPanel, porque desenvolvedor experi
 ## 🧭 Como o robô trabalha
 
 ```text
-06:00  cron ──► fetch_daily_news
-                 │
-                 ├─ 1. coleta    Baixa o RSS de cada fonte ativa (timeout + 3 tentativas).
-                 │               Uma fonte quebrada não derruba as outras.
-                 │
-                 ├─ 2. montagem  Pega as notícias das últimas 24h, agrupa a mesma pauta
-                 │               vinda de portais diferentes e ordena:
-                 │                 • pauta que saiu em mais de um portal → manchete
-                 │                 • o resto alternando os portais, do mais recente pro mais antigo
-                 │
-                 └─ 3. PDF       WeasyPrint renderiza o template de jornal (A4, 3 colunas,
-                                 cabeçalho gótico, xícara de expresso e seção de Referências
-                                 com o link de cada matéria) e salva
-                                 em media/edicoes_pdf/ junto com uma miniatura da capa.
+06:00 e 19:00  cron ──► fetch_daily_news   (o turno sai do horário: antes do meio-dia = manhã)
+                          │
+                          ├─ 1. coleta    Baixa o RSS de cada fonte ativa (timeout + 3 tentativas).
+                          │               Uma fonte quebrada não derruba as outras. Cada notícia
+                          │               ganha um resumo que termina a frase (sem reticências)
+                          │               e um tema, por palavras-chave (news/services/temas.py).
+                          │
+                          ├─ 2. montagem  Pega o que foi publicado DESDE A EDIÇÃO ANTERIOR
+                          │               (a da manhã pega a noite e a madrugada; a noturna, o dia),
+                          │               tira o que já saiu antes (inclusive a mesma história
+                          │               republicada com outro link), agrupa a mesma pauta de
+                          │               portais diferentes e ordena:
+                          │                 • pauta que saiu em mais de um portal → manchete
+                          │                 • o resto alternando os portais, até 16 notícias,
+                          │                   no máximo 4 por tema
+                          │
+                          └─ 3. PDF       WeasyPrint renderiza o jornal (A4, cabeçalho gótico,
+                                          xícara de expresso — com lua na noturna —, sumário com
+                                          páginas, uma faixa por tema e Referências com o link de
+                                          cada matéria) e salva em media/edicoes_pdf/.
 ```
 
 **Sobre direitos autorais:** o jornal mostra só o título, um resumo curto (a linha fina do G1 ou o primeiro parágrafo do Jornal da Paraíba) e um número `[n]` que aponta pra seção de **Referências** no fim da edição, onde ficam os endereços das matérias originais (e do outro portal, quando a pauta saiu nos dois). O texto completo fica nos portais, que é onde ele mora.
@@ -51,11 +57,13 @@ src/
 │   ├── models/                   📦 FonteNoticia, Noticia, Edicao (+ posição de cada notícia)
 │   ├── services/                 🧠 a regra de negócio, isolada e testada
 │   │   ├── coleta.py             📡 RSS → notícias limpas no banco
-│   │   ├── montagem.py           🧩 deduplicação + relevância + edição do dia
+│   │   ├── temas.py              🏷️ palavras-chave de cada tema (ajuste aqui)
+│   │   ├── montagem.py           🧩 janela, sem repeteco, relevância, seções
 │   │   └── pdf_generator.py      🖨️ HTML → PDF (WeasyPrint) + miniatura da capa
 │   ├── management/commands/
 │   │   ├── fetch_daily_news.py   🤖 o relógio biológico do sistema (coleta + monta + PDF)
-│   │   └── generate_pdf.py       🎨 regera só o PDF (pra ajustar o layout)
+│   │   ├── generate_pdf.py       🎨 regera só o PDF (pra ajustar o layout)
+│   │   └── reprocessar_noticias.py ♻️ refaz resumo e tema das notícias já salvas
 │   ├── views/                    🌐 home, acervo e entrega dos PDFs
 │   ├── migrations/               🗃️ inclusive as fontes iniciais (JP, g1 PB, PB Agora)
 │   └── tests/                    ✅ testes, com feeds reais de exemplo
@@ -113,8 +121,11 @@ python manage.py fetch_daily_news \
 | :--- | :--- |
 | `fetch_daily_news --sem-pdf` | Coleta e monta, sem gerar PDF |
 | `fetch_daily_news --sem-coleta` | Remonta a edição com o que já está no banco |
-| `fetch_daily_news --data 2026-11-15` | Monta a edição de um dia específico |
+| `fetch_daily_news --turno noite` | Força o turno (`manha` ou `noite`); sem isso, vale o horário |
+| `fetch_daily_news --data 2026-11-15 --turno manha` | Monta a edição de um dia e turno específicos |
 | `generate_pdf` | Regera o PDF da edição mais recente |
+| `generate_pdf --data 2026-11-15 --turno noite` | Regera o PDF de uma edição específica |
+| `reprocessar_noticias` | Refaz resumo e tema das notícias já salvas (depois de ajustar `temas.py`) |
 | `generate_pdf --html /tmp/jornal.html` | Salva também o HTML, pra depurar o layout no navegador |
 | `test news` | Roda os testes |
 
@@ -179,13 +190,20 @@ python manage.py fetch_daily_news \
 
    Depois clique em **Restart** na tela do Python App.
 
-7. **Cron Jobs** — todo santo dia às 06:00 AM:
+7. **Cron Jobs** — duas linhas, uma por edição (o comando é o mesmo; o turno sai do horário):
+
+   | Minuto | Hora | Comando |
+   | :--- | :--- | :--- |
+   | `0` | `6` | Edição da Manhã (comando abaixo) |
+   | `0` | `19` | Edição Noturna (o mesmo comando) |
 
    ```bash
    cd /home/seu_usuario/paraipython/src && /home/seu_usuario/virtualenv/paraipython/src/3.10/bin/python manage.py fetch_daily_news >> /home/seu_usuario/paraipython/cron.log 2>&1
    ```
 
-   > ⏰ O cron usa o fuso do **servidor**, não o de João Pessoa. Rode `date` no terminal: se o servidor estiver em UTC, agende para **09:00** pra sair às 06:00 daqui.
+   > ⏰ O cron usa o fuso do **servidor**, não o de João Pessoa. Rode `date` no terminal: se o servidor estiver em UTC, agende para **09:00** e **22:00** pra sair às 06:00 e às 19:00 daqui. O turno é calculado no fuso de João Pessoa (o `TIME_ZONE` do Django), então o comando continua o mesmo nas duas linhas.
+
+   Mudou o horário de alguma edição? Ajuste também `PARAIPYTHON_HORARIO_MANHA` / `PARAIPYTHON_HORARIO_NOITE` no `.env` (eles aparecem no jornal e limitam a janela de notícias).
 
 Pronto! Agora vá tomar um expresso com cuscuz enquanto o robô faz o trabalho pesado.
 
@@ -196,6 +214,7 @@ Pronto! Agora vá tomar um expresso com cuscuz enquanto o robô faz o trabalho p
 * [ ] Coletor por scraping para o **PB Agora** (a fonte já está cadastrada, inativa, com `tipo = scraping`)
 * [ ] Notificação (e-mail/Telegram) quando uma fonte falhar no cron
 * [ ] Página web de cada edição com as manchetes, além do PDF
+* [ ] Ajustar as palavras-chave dos temas com o tempo (`news/services/temas.py` + `reprocessar_noticias`)
 
 ---
 

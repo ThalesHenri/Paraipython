@@ -1,0 +1,2321 @@
+diff --git a/README.md b/README.md
+index aab4cb1..1732780 100644
+--- a/README.md
++++ b/README.md
+@@ -10,7 +10,7 @@ O **Expresso PB** é o seu jornal automatizado de João Pessoa: curto, forte e t
+ 
+ > O repositório e o pacote Python continuam se chamando `paraipython` (nome de batismo do projeto). O que mudou foi a marca do jornal.
+ 
+-Enquanto você dorme o sono dos justos, um *management command* em Django acorda às 06:00 em ponto, varre os principais portais da capital paraibana via RSS, junta as pautas repetidas, escolhe as mais repercutidas, empacota tudo numa diagramação retrô de respeito (estilo jornal de 1920) e serve um **PDF em alta qualidade** pronto pra acompanhar o cafezinho.
++São **duas edições por dia**: a **Edição da Manhã** (06:00), pra ler ao acordar, e a **Edição Noturna** (19:00), pra ler ao voltar pra casa. Em cada uma, um *management command* em Django varre os principais portais da capital paraibana via RSS, junta as pautas repetidas, separa tudo por tema (Cidade, Polícia, Política, Economia, Educação, Saúde, Clima & Ambiente, Esportes, Cultura), empacota numa diagramação retrô de respeito (estilo jornal de 1920) e serve um **PDF em alta qualidade** pronto pra acompanhar o cafezinho.
+ 
+ Tudo isso rodando nas manhas no seu servidor cPanel, porque desenvolvedor experiente não sofre em terreno desconhecido.
+ 
+@@ -19,20 +19,26 @@ Tudo isso rodando nas manhas no seu servidor cPanel, porque desenvolvedor experi
+ ## 🧭 Como o robô trabalha
+ 
+ ```text
+-06:00  cron ──► fetch_daily_news
+-                 │
+-                 ├─ 1. coleta    Baixa o RSS de cada fonte ativa (timeout + 3 tentativas).
+-                 │               Uma fonte quebrada não derruba as outras.
+-                 │
+-                 ├─ 2. montagem  Pega as notícias das últimas 24h, agrupa a mesma pauta
+-                 │               vinda de portais diferentes e ordena:
+-                 │                 • pauta que saiu em mais de um portal → manchete
+-                 │                 • o resto alternando os portais, do mais recente pro mais antigo
+-                 │
+-                 └─ 3. PDF       WeasyPrint renderiza o template de jornal (A4, 3 colunas,
+-                                 cabeçalho gótico, xícara de expresso e seção de Referências
+-                                 com o link de cada matéria) e salva
+-                                 em media/edicoes_pdf/ junto com uma miniatura da capa.
++06:00 e 19:00  cron ──► fetch_daily_news   (o turno sai do horário: antes do meio-dia = manhã)
++                          │
++                          ├─ 1. coleta    Baixa o RSS de cada fonte ativa (timeout + 3 tentativas).
++                          │               Uma fonte quebrada não derruba as outras. Cada notícia
++                          │               ganha um resumo que termina a frase (sem reticências)
++                          │               e um tema, por palavras-chave (news/services/temas.py).
++                          │
++                          ├─ 2. montagem  Pega o que foi publicado DESDE A EDIÇÃO ANTERIOR
++                          │               (a da manhã pega a noite e a madrugada; a noturna, o dia),
++                          │               tira o que já saiu antes (inclusive a mesma história
++                          │               republicada com outro link), agrupa a mesma pauta de
++                          │               portais diferentes e ordena:
++                          │                 • pauta que saiu em mais de um portal → manchete
++                          │                 • o resto alternando os portais, até 16 notícias,
++                          │                   no máximo 4 por tema
++                          │
++                          └─ 3. PDF       WeasyPrint renderiza o jornal (A4, cabeçalho gótico,
++                                          xícara de expresso — com lua na noturna —, sumário com
++                                          páginas, uma faixa por tema e Referências com o link de
++                                          cada matéria) e salva em media/edicoes_pdf/.
+ ```
+ 
+ **Sobre direitos autorais:** o jornal mostra só o título, um resumo curto (a linha fina do G1 ou o primeiro parágrafo do Jornal da Paraíba) e um número `[n]` que aponta pra seção de **Referências** no fim da edição, onde ficam os endereços das matérias originais (e do outro portal, quando a pauta saiu nos dois). O texto completo fica nos portais, que é onde ele mora.
+@@ -51,11 +57,13 @@ src/
+ │   ├── models/                   📦 FonteNoticia, Noticia, Edicao (+ posição de cada notícia)
+ │   ├── services/                 🧠 a regra de negócio, isolada e testada
+ │   │   ├── coleta.py             📡 RSS → notícias limpas no banco
+-│   │   ├── montagem.py           🧩 deduplicação + relevância + edição do dia
++│   │   ├── temas.py              🏷️ palavras-chave de cada tema (ajuste aqui)
++│   │   ├── montagem.py           🧩 janela, sem repeteco, relevância, seções
+ │   │   └── pdf_generator.py      🖨️ HTML → PDF (WeasyPrint) + miniatura da capa
+ │   ├── management/commands/
+ │   │   ├── fetch_daily_news.py   🤖 o relógio biológico do sistema (coleta + monta + PDF)
+-│   │   └── generate_pdf.py       🎨 regera só o PDF (pra ajustar o layout)
++│   │   ├── generate_pdf.py       🎨 regera só o PDF (pra ajustar o layout)
++│   │   └── reprocessar_noticias.py ♻️ refaz resumo e tema das notícias já salvas
+ │   ├── views/                    🌐 home, acervo e entrega dos PDFs
+ │   ├── migrations/               🗃️ inclusive as fontes iniciais (JP, g1 PB, PB Agora)
+ │   └── tests/                    ✅ testes, com feeds reais de exemplo
+@@ -113,8 +121,11 @@ python manage.py fetch_daily_news \
+ | :--- | :--- |
+ | `fetch_daily_news --sem-pdf` | Coleta e monta, sem gerar PDF |
+ | `fetch_daily_news --sem-coleta` | Remonta a edição com o que já está no banco |
+-| `fetch_daily_news --data 2026-11-15` | Monta a edição de um dia específico |
++| `fetch_daily_news --turno noite` | Força o turno (`manha` ou `noite`); sem isso, vale o horário |
++| `fetch_daily_news --data 2026-11-15 --turno manha` | Monta a edição de um dia e turno específicos |
+ | `generate_pdf` | Regera o PDF da edição mais recente |
++| `generate_pdf --data 2026-11-15 --turno noite` | Regera o PDF de uma edição específica |
++| `reprocessar_noticias` | Refaz resumo e tema das notícias já salvas (depois de ajustar `temas.py`) |
+ | `generate_pdf --html /tmp/jornal.html` | Salva também o HTML, pra depurar o layout no navegador |
+ | `test news` | Roda os testes |
+ 
+@@ -179,13 +190,20 @@ python manage.py fetch_daily_news \
+ 
+    Depois clique em **Restart** na tela do Python App.
+ 
+-7. **Cron Jobs** — todo santo dia às 06:00 AM:
++7. **Cron Jobs** — duas linhas, uma por edição (o comando é o mesmo; o turno sai do horário):
++
++   | Minuto | Hora | Comando |
++   | :--- | :--- | :--- |
++   | `0` | `6` | Edição da Manhã (comando abaixo) |
++   | `0` | `19` | Edição Noturna (o mesmo comando) |
+ 
+    ```bash
+    cd /home/seu_usuario/paraipython/src && /home/seu_usuario/virtualenv/paraipython/src/3.10/bin/python manage.py fetch_daily_news >> /home/seu_usuario/paraipython/cron.log 2>&1
+    ```
+ 
+-   > ⏰ O cron usa o fuso do **servidor**, não o de João Pessoa. Rode `date` no terminal: se o servidor estiver em UTC, agende para **09:00** pra sair às 06:00 daqui.
++   > ⏰ O cron usa o fuso do **servidor**, não o de João Pessoa. Rode `date` no terminal: se o servidor estiver em UTC, agende para **09:00** e **22:00** pra sair às 06:00 e às 19:00 daqui. O turno é calculado no fuso de João Pessoa (o `TIME_ZONE` do Django), então o comando continua o mesmo nas duas linhas.
++
++   Mudou o horário de alguma edição? Ajuste também `PARAIPYTHON_HORARIO_MANHA` / `PARAIPYTHON_HORARIO_NOITE` no `.env` (eles aparecem no jornal e limitam a janela de notícias).
+ 
+ Pronto! Agora vá tomar um expresso com cuscuz enquanto o robô faz o trabalho pesado.
+ 
+@@ -196,6 +214,7 @@ Pronto! Agora vá tomar um expresso com cuscuz enquanto o robô faz o trabalho p
+ * [ ] Coletor por scraping para o **PB Agora** (a fonte já está cadastrada, inativa, com `tipo = scraping`)
+ * [ ] Notificação (e-mail/Telegram) quando uma fonte falhar no cron
+ * [ ] Página web de cada edição com as manchetes, além do PDF
++* [ ] Ajustar as palavras-chave dos temas com o tempo (`news/services/temas.py` + `reprocessar_noticias`)
+ 
+ ---
+ 
+diff --git a/src/.env.example b/src/.env.example
+index 69d0dd1..d93ed19 100644
+--- a/src/.env.example
++++ b/src/.env.example
+@@ -25,8 +25,14 @@ DJANGO_CSRF_TRUSTED_ORIGINS=https://paraipython.seudominio.com.br
+ # APOIO_LINK_URL=https://apoia.se/seu-perfil    # deixe vazio (APOIO_LINK_URL=) para esconder
+ 
+ # --- Robô ---
+-# PARAIPYTHON_NOTICIAS_POR_EDICAO=13
++# PARAIPYTHON_HORARIO_MANHA=06:00
++# PARAIPYTHON_HORARIO_NOITE=19:00
++# PARAIPYTHON_NOTICIAS_POR_EDICAO=16
++# PARAIPYTHON_MAX_POR_TEMA=4
+ # PARAIPYTHON_JANELA_HORAS=24
++# PARAIPYTHON_JANELA_MAXIMA_HORAS=30
++# PARAIPYTHON_EDICOES_COMPARADAS=4
+ # PARAIPYTHON_LIMIAR_DUPLICADA=0.6
+ # PARAIPYTHON_TAMANHO_RESUMO=320
++# PARAIPYTHON_TETO_RESUMO=450
+ # PARAIPYTHON_LOG_LEVEL=INFO
+diff --git a/src/core/settings.py b/src/core/settings.py
+index d9a49a0..d66d33a 100644
+--- a/src/core/settings.py
++++ b/src/core/settings.py
+@@ -178,14 +178,23 @@ X_FRAME_OPTIONS = "SAMEORIGIN"
+ 
+ # --- Expresso PB (configurações do robô; o nome interno do projeto segue "paraipython") ---
+ PARAIPYTHON = {
+-    # Quantas notícias entram em cada edição (1 manchete + o resto nas colunas)
+-    "NOTICIAS_POR_EDICAO": int(os.getenv("PARAIPYTHON_NOTICIAS_POR_EDICAO", 13)),
+-    # Janela de horas olhando para trás a partir do momento da geração
++    # Horário de cada edição (o mesmo que você agenda no cron do cPanel)
++    "HORARIO_MANHA": os.getenv("PARAIPYTHON_HORARIO_MANHA", "06:00"),
++    "HORARIO_NOITE": os.getenv("PARAIPYTHON_HORARIO_NOITE", "19:00"),
++    # Notícias por edição (manchete incluída) e teto por tema
++    "NOTICIAS_POR_EDICAO": int(os.getenv("PARAIPYTHON_NOTICIAS_POR_EDICAO", 16)),
++    "MAX_POR_TEMA": int(os.getenv("PARAIPYTHON_MAX_POR_TEMA", 4)),
++    # Janela da 1ª edição (quando não existe edição anterior) e teto da janela
++    # (se o robô falhar um dia, a edição seguinte não vai além disso)
+     "JANELA_HORAS": int(os.getenv("PARAIPYTHON_JANELA_HORAS", 24)),
++    "JANELA_MAXIMA_HORAS": int(os.getenv("PARAIPYTHON_JANELA_MAXIMA_HORAS", 30)),
++    # Quantas edições anteriores são comparadas para não repetir a mesma pauta
++    "EDICOES_COMPARADAS": int(os.getenv("PARAIPYTHON_EDICOES_COMPARADAS", 4)),
+     # Similaridade de título (0 a 1) a partir da qual duas notícias são "a mesma pauta"
+     "LIMIAR_DUPLICADA": float(os.getenv("PARAIPYTHON_LIMIAR_DUPLICADA", 0.6)),
+-    # Tamanho máximo do resumo de cada notícia (caracteres)
++    # Resumo: alvo em caracteres e teto para conseguir terminar a frase
+     "TAMANHO_RESUMO": int(os.getenv("PARAIPYTHON_TAMANHO_RESUMO", 320)),
++    "TETO_RESUMO": int(os.getenv("PARAIPYTHON_TETO_RESUMO", 450)),
+     "TIMEOUT_HTTP": int(os.getenv("PARAIPYTHON_TIMEOUT_HTTP", 20)),
+     "USER_AGENT": "ExpressoPB/1.0 (+agregador de manchetes de Joao Pessoa)",
+ }
+diff --git a/src/news/admin.py b/src/news/admin.py
+index 34f6520..1c727fc 100644
+--- a/src/news/admin.py
++++ b/src/news/admin.py
+@@ -18,8 +18,9 @@ class FonteNoticiaAdmin(admin.ModelAdmin):
+ 
+ @admin.register(Noticia)
+ class NoticiaAdmin(admin.ModelAdmin):
+-    list_display = ("titulo", "fonte", "categoria", "publicado_em", "coletado_em")
+-    list_filter = ("fonte", "categoria", "publicado_em")
++    list_display = ("titulo", "tema", "fonte", "categoria", "publicado_em")
++    list_filter = ("tema", "fonte", "publicado_em")
++    list_editable = ("tema",)  # corrija o tema na própria lista
+     search_fields = ("titulo", "resumo")
+     date_hierarchy = "publicado_em"
+     ordering = ("-publicado_em",)
+@@ -29,14 +30,15 @@ class EdicaoNoticiaInline(admin.TabularInline):
+     model = EdicaoNoticia
+     extra = 0
+     autocomplete_fields = ("noticia",)
+-    fields = ("posicao", "noticia", "outras_fontes")
++    fields = ("posicao", "tema", "noticia", "outras_fontes")
+ 
+ 
+ @admin.register(Edicao)
+ class EdicaoAdmin(admin.ModelAdmin):
+-    list_display = ("numero_edicao", "data_edicao", "total_noticias", "link_pdf", "atualizado_em")
+-    ordering = ("-data_edicao",)
+-    readonly_fields = ("data_criacao", "atualizado_em")
++    list_display = ("numero_edicao", "data_edicao", "turno", "total_noticias", "link_pdf", "fim_janela")
++    list_filter = ("turno",)
++    ordering = ("-data_edicao", "-turno")
++    readonly_fields = ("data_criacao", "atualizado_em", "fim_janela")
+     inlines = [EdicaoNoticiaInline]
+ 
+     @admin.display(description="Notícias")
+diff --git a/src/news/management/commands/fetch_daily_news.py b/src/news/management/commands/fetch_daily_news.py
+index 2108654..90c9a69 100644
+--- a/src/news/management/commands/fetch_daily_news.py
++++ b/src/news/management/commands/fetch_daily_news.py
+@@ -1,9 +1,11 @@
+-"""Robô diário do Expresso PB: coleta → monta a edição → gera o PDF.
++"""Robô do Expresso PB: coleta → monta a edição → gera o PDF.
+ 
+-Uso típico (cron às 06:00):
+-    python manage.py fetch_daily_news
++Duas edições por dia, uma linha de cron para cada (o turno sai do horário):
++    06:00 → python manage.py fetch_daily_news        # Edição da Manhã
++    19:00 → python manage.py fetch_daily_news        # Edição Noturna
+ 
+ Outras formas:
++    python manage.py fetch_daily_news --turno noite     # força o turno
+     python manage.py fetch_daily_news --sem-pdf             # só coleta e monta
+     python manage.py fetch_daily_news --sem-coleta          # remonta com o que já está no banco
+     python manage.py fetch_daily_news --feed-local "g1 PB=/caminho/feed.xml"   # testa offline
+@@ -16,15 +18,20 @@ from django.utils import timezone
+ 
+ from news.models import FonteNoticia
+ from news.services.coleta import coletar_fonte, coletar_todas
+-from news.services.montagem import montar_edicao
++from news.models import Edicao
++from news.services.montagem import montar_edicao, turno_atual
+ from news.services.pdf_generator import gerar_pdf_da_edicao
+ 
+ 
+ class Command(BaseCommand):
+-    help = "Coleta os feeds RSS, monta a edição do dia e gera o PDF retrô."
++    help = "Coleta os feeds RSS, monta a edição (manhã ou noturna) e gera o PDF retrô."
+ 
+     def add_arguments(self, parser):
+         parser.add_argument("--data", help="Data da edição (AAAA-MM-DD). Padrão: hoje.")
++        parser.add_argument(
++            "--turno", choices=Edicao.Turno.values,
++            help="manha ou noite. Padrão: pelo horário (antes do meio-dia = manhã).",
++        )
+         parser.add_argument("--sem-coleta", action="store_true", help="Não baixa os feeds.")
+         parser.add_argument("--sem-pdf", action="store_true", help="Não gera o PDF.")
+         parser.add_argument(
+@@ -34,14 +41,15 @@ class Command(BaseCommand):
+ 
+     def handle(self, *args, **opts):
+         data = self._data(opts["data"])
++        turno = opts["turno"] or turno_atual()
+ 
+         if not opts["sem_coleta"]:
+             self._coletar(opts["feed_local"])
+ 
+-        edicao = montar_edicao(data)
++        edicao = montar_edicao(data, turno)
+         if edicao is None:
+             self.stdout.write(self.style.WARNING(
+-                "Nenhuma notícia na janela de tempo da edição — nada a publicar hoje."
++                "Nenhuma notícia nova desde a edição anterior — nada a publicar agora."
+             ))
+             return
+         total = edicao.noticias.count()
+diff --git a/src/news/management/commands/generate_pdf.py b/src/news/management/commands/generate_pdf.py
+index 5305788..94c7f59 100644
+--- a/src/news/management/commands/generate_pdf.py
++++ b/src/news/management/commands/generate_pdf.py
+@@ -1,8 +1,8 @@
+ """Regera o PDF de uma edição já montada, sem coletar nada.
+ 
+ Útil para ajustar o layout do template e ver o resultado:
+-    python manage.py generate_pdf                 # edição mais recente
+-    python manage.py generate_pdf --data 2026-11-15
++    python manage.py generate_pdf                              # edição mais recente
++    python manage.py generate_pdf --data 2026-11-15 --turno noite
+     python manage.py generate_pdf --html saida.html   # também grava o HTML para depurar no navegador
+ """
+ from datetime import date
+@@ -19,14 +19,21 @@ class Command(BaseCommand):
+ 
+     def add_arguments(self, parser):
+         parser.add_argument("--data", help="Data da edição (AAAA-MM-DD). Padrão: a mais recente.")
++        parser.add_argument("--turno", choices=Edicao.Turno.values,
++                            help="manha ou noite. Com --data e sem --turno: a mais recente do dia.")
+         parser.add_argument("--html", help="Caminho para salvar também o HTML renderizado.")
+ 
+     def handle(self, *args, **opts):
+         if opts["data"]:
+             try:
+-                edicao = Edicao.objects.get(data_edicao=date.fromisoformat(opts["data"]))
+-            except (ValueError, Edicao.DoesNotExist):
+-                raise CommandError(f"Nenhuma edição em {opts['data']}.")
++                edicoes = Edicao.objects.filter(data_edicao=date.fromisoformat(opts["data"]))
++            except ValueError:
++                raise CommandError("Use a data no formato AAAA-MM-DD.")
++            if opts["turno"]:
++                edicoes = edicoes.filter(turno=opts["turno"])
++            edicao = edicoes.first()
++            if edicao is None:
++                raise CommandError(f"Nenhuma edição em {opts['data']} {opts['turno'] or ''}".strip() + ".")
+         else:
+             edicao = Edicao.objects.first()
+             if edicao is None:
+diff --git a/src/news/management/commands/reprocessar_noticias.py b/src/news/management/commands/reprocessar_noticias.py
+new file mode 100644
+index 0000000..34d1d86
+--- /dev/null
++++ b/src/news/management/commands/reprocessar_noticias.py
+@@ -0,0 +1,57 @@
++"""Refaz o resumo e o tema das notícias já salvas no banco.
++
++Use depois de ajustar as palavras-chave em ``news/services/temas.py`` ou as regras de
++resumo em ``news/services/coleta.py``:
++    python manage.py reprocessar_noticias
++    python manage.py reprocessar_noticias --dias 3      # só as notícias dos últimos 3 dias
++
++Edições já publicadas não mudam; o efeito aparece nas próximas (ou ao refazer uma edição).
++"""
++from datetime import timedelta
++
++from django.core.management.base import BaseCommand
++from django.utils import timezone
++
++from news.models import Noticia
++from news.services.coleta import candidatos_do_conteudo, melhor_resumo, resumir
++from news.services.temas import classificar
++
++
++class Command(BaseCommand):
++    help = "Recalcula resumo (sem reticências) e tema das notícias já coletadas."
++
++    def add_arguments(self, parser):
++        parser.add_argument("--dias", type=int, help="Só notícias publicadas nos últimos N dias.")
++
++    def handle(self, *args, **opts):
++        noticias = Noticia.objects.all()
++        if opts["dias"]:
++            noticias = noticias.filter(publicado_em__gte=timezone.now() - timedelta(days=opts["dias"]))
++
++        resumos = temas = 0
++        for noticia in noticias.iterator():
++            campos = []
++            # O resumo antigo serve se fecha a frase; se terminava em "…", refazemos
++            # a partir do conteúdo guardado do feed.
++            novo_resumo = None if noticia.resumo.endswith("…") else resumir(noticia.resumo)
++            if not novo_resumo:
++                novo_resumo = melhor_resumo(
++                    candidatos_do_conteudo(noticia.conteudo_bruto, noticia.titulo) + [noticia.resumo]
++                )
++            if novo_resumo and novo_resumo != noticia.resumo:
++                noticia.resumo = novo_resumo
++                campos.append("resumo")
++                resumos += 1
++
++            novo_tema = classificar(noticia.titulo, noticia.resumo, noticia.categoria, noticia.link)
++            if novo_tema != noticia.tema:
++                noticia.tema = novo_tema
++                campos.append("tema")
++                temas += 1
++
++            if campos:
++                noticia.save(update_fields=campos)
++
++        self.stdout.write(self.style.SUCCESS(
++            f"{noticias.count()} notícias revisadas: {resumos} resumos refeitos, {temas} temas alterados."
++        ))
+diff --git a/src/news/migrations/0004_edicoes_por_turno_e_temas.py b/src/news/migrations/0004_edicoes_por_turno_e_temas.py
+new file mode 100644
+index 0000000..7058eca
+--- /dev/null
++++ b/src/news/migrations/0004_edicoes_por_turno_e_temas.py
+@@ -0,0 +1,106 @@
++# Generated by Django 5.2.19 on 2026-11-16 14:24
++
++from django.db import migrations, models
++
++
++class Migration(migrations.Migration):
++
++    dependencies = [
++        ("news", "0003_outros_links"),
++    ]
++
++    operations = [
++        migrations.AlterModelOptions(
++            name="edicao",
++            options={
++                "ordering": ["-data_edicao", "-turno"],
++                "verbose_name": "Edição",
++                "verbose_name_plural": "Edições",
++            },
++        ),
++        migrations.AddField(
++            model_name="edicao",
++            name="fim_janela",
++            field=models.DateTimeField(
++                blank=True,
++                help_text="Momento de corte da edição. A próxima edição começa a partir daqui.",
++                null=True,
++                verbose_name="Notícias até",
++            ),
++        ),
++        migrations.AddField(
++            model_name="edicao",
++            name="turno",
++            field=models.CharField(
++                choices=[("manha", "Edição da Manhã"), ("noite", "Edição Noturna")],
++                default="manha",
++                max_length=5,
++            ),
++        ),
++        migrations.AddField(
++            model_name="edicaonoticia",
++            name="tema",
++            field=models.CharField(
++                choices=[
++                    ("cidade", "Cidade"),
++                    ("policia", "Polícia"),
++                    ("politica", "Política"),
++                    ("economia", "Economia"),
++                    ("educacao", "Educação"),
++                    ("saude", "Saúde"),
++                    ("clima", "Clima & Ambiente"),
++                    ("esportes", "Esportes"),
++                    ("cultura", "Cultura"),
++                ],
++                default="cidade",
++                help_text="Seção em que a notícia saiu nesta edição.",
++                max_length=20,
++            ),
++        ),
++        migrations.AddField(
++            model_name="noticia",
++            name="tema",
++            field=models.CharField(
++                choices=[
++                    ("cidade", "Cidade"),
++                    ("policia", "Polícia"),
++                    ("politica", "Política"),
++                    ("economia", "Economia"),
++                    ("educacao", "Educação"),
++                    ("saude", "Saúde"),
++                    ("clima", "Clima & Ambiente"),
++                    ("esportes", "Esportes"),
++                    ("cultura", "Cultura"),
++                ],
++                db_index=True,
++                default="cidade",
++                help_text="Seção do jornal. Classificada automaticamente; pode ser corrigida aqui.",
++                max_length=20,
++            ),
++        ),
++        migrations.AlterField(
++            model_name="edicao",
++            name="data_edicao",
++            field=models.DateField(verbose_name="Data da edição"),
++        ),
++        migrations.AlterField(
++            model_name="edicao",
++            name="titulo",
++            field=models.CharField(
++                default="Edição Automática • João Pessoa - PB", max_length=200
++            ),
++        ),
++        migrations.AlterField(
++            model_name="noticia",
++            name="categoria",
++            field=models.CharField(
++                blank=True, help_text="Categoria original do portal.", max_length=100
++            ),
++        ),
++        migrations.AddConstraint(
++            model_name="edicao",
++            constraint=models.UniqueConstraint(
++                fields=("data_edicao", "turno"), name="uma_edicao_por_turno"
++            ),
++        ),
++    ]
+diff --git a/src/news/migrations/0005_preencher_temas_e_janelas.py b/src/news/migrations/0005_preencher_temas_e_janelas.py
+new file mode 100644
+index 0000000..d0ce3fc
+--- /dev/null
++++ b/src/news/migrations/0005_preencher_temas_e_janelas.py
+@@ -0,0 +1,31 @@
++"""Preenche os campos novos nos dados que já existiam:
++- edições antigas viram "Edição da Manhã" com o fim da janela = momento em que foram criadas;
++- notícias antigas ganham tema pelo classificador;
++- cada notícia já publicada recebe a seção (tema) da própria notícia.
++"""
++from django.db import migrations
++
++
++def preencher(apps, schema_editor):
++    from news.services.temas import classificar
++
++    Edicao = apps.get_model("news", "Edicao")
++    Noticia = apps.get_model("news", "Noticia")
++    EdicaoNoticia = apps.get_model("news", "EdicaoNoticia")
++
++    for edicao in Edicao.objects.filter(fim_janela__isnull=True):
++        edicao.fim_janela = edicao.data_criacao
++        edicao.save(update_fields=["fim_janela"])
++
++    for noticia in Noticia.objects.all().iterator():
++        noticia.tema = classificar(noticia.titulo, noticia.resumo, noticia.categoria, noticia.link)
++        noticia.save(update_fields=["tema"])
++
++    for rel in EdicaoNoticia.objects.select_related("noticia"):
++        rel.tema = rel.noticia.tema
++        rel.save(update_fields=["tema"])
++
++
++class Migration(migrations.Migration):
++    dependencies = [("news", "0004_edicoes_por_turno_e_temas")]
++    operations = [migrations.RunPython(preencher, migrations.RunPython.noop)]
+diff --git a/src/news/models/edicao_model.py b/src/news/models/edicao_model.py
+index 2dc6569..a18bb99 100644
+--- a/src/news/models/edicao_model.py
++++ b/src/news/models/edicao_model.py
+@@ -1,7 +1,9 @@
+ from django.db import models
+-from django.db.models import Max
++from django.db.models import Max, Q
+ from django.urls import reverse
+ 
++from news.temas import Tema
++
+ 
+ def upload_pdf(instance, filename):
+     return f"edicoes_pdf/{filename}"
+@@ -12,11 +14,21 @@ def upload_capa(instance, filename):
+ 
+ 
+ class Edicao(models.Model):
+-    """Uma edição diária do jornal: a seleção de notícias do dia e o PDF gerado."""
++    """Uma edição do jornal (manhã ou noite): a seleção de notícias e o PDF gerado."""
++
++    class Turno(models.TextChoices):
++        # A ordem alfabética ("manha" < "noite") é também a ordem do dia.
++        MANHA = "manha", "Edição da Manhã"
++        NOITE = "noite", "Edição Noturna"
+ 
+-    titulo = models.CharField(max_length=200, default="Edição Diária Automática • João Pessoa - PB")
++    titulo = models.CharField(max_length=200, default="Edição Automática • João Pessoa - PB")
+     numero_edicao = models.PositiveIntegerField(unique=True, verbose_name="Nº da edição")
+-    data_edicao = models.DateField(unique=True, verbose_name="Data da edição")
++    data_edicao = models.DateField(verbose_name="Data da edição")
++    turno = models.CharField(max_length=5, choices=Turno.choices, default=Turno.MANHA)
++    fim_janela = models.DateTimeField(
++        null=True, blank=True, verbose_name="Notícias até",
++        help_text="Momento de corte da edição. A próxima edição começa a partir daqui.",
++    )
+     noticias = models.ManyToManyField("Noticia", through="EdicaoNoticia", related_name="edicoes")
+     arquivo_pdf = models.FileField(upload_to=upload_pdf, blank=True, verbose_name="Arquivo PDF")
+     capa = models.ImageField(upload_to=upload_capa, blank=True, verbose_name="Miniatura da capa")
+@@ -26,34 +38,55 @@ class Edicao(models.Model):
+     class Meta:
+         verbose_name = "Edição"
+         verbose_name_plural = "Edições"
+-        ordering = ["-data_edicao"]
++        ordering = ["-data_edicao", "-turno"]
++        constraints = [
++            models.UniqueConstraint(fields=["data_edicao", "turno"], name="uma_edicao_por_turno"),
++        ]
+ 
+     def __str__(self):
+-        return f"Edição Nº {self.numero_edicao} — {self.data_edicao:%d/%m/%Y}"
++        return f"Nº {self.numero_edicao} — {self.get_turno_display()} de {self.data_edicao:%d/%m/%Y}"
+ 
+     @classmethod
+     def proximo_numero(cls):
+         return (cls.objects.aggregate(m=Max("numero_edicao"))["m"] or 0) + 1
+ 
++    @classmethod
++    def anteriores_a(cls, data, turno):
++        """Edições publicadas antes de (data, turno), da mais recente para a mais antiga."""
++        return cls.objects.filter(
++            Q(data_edicao__lt=data) | Q(data_edicao=data, turno__lt=turno)
++        ).order_by("-data_edicao", "-turno")
++
++    @property
++    def eh_noite(self):
++        return self.turno == self.Turno.NOITE
++
+     def noticias_ordenadas(self):
+         return self.noticias.order_by("edicaonoticia__posicao").select_related("fonte")
+ 
++    def _kwargs(self):
++        return {"data": self.data_edicao.isoformat(), "turno": self.turno}
++
+     def get_pdf_url(self):
+-        return reverse("news:edicao_pdf", kwargs={"data": self.data_edicao.isoformat()})
++        return reverse("news:edicao_pdf", kwargs=self._kwargs())
+ 
+     def get_download_url(self):
+-        return reverse("news:edicao_download", kwargs={"data": self.data_edicao.isoformat()})
++        return reverse("news:edicao_download", kwargs=self._kwargs())
+ 
+     def get_capa_url(self):
+-        return reverse("news:edicao_capa", kwargs={"data": self.data_edicao.isoformat()})
++        return reverse("news:edicao_capa", kwargs=self._kwargs())
+ 
+ 
+ class EdicaoNoticia(models.Model):
+-    """Posição de cada notícia na edição (0 = manchete principal)."""
++    """Posição e seção de cada notícia na edição (posição 0 = manchete da capa)."""
+ 
+     edicao = models.ForeignKey(Edicao, on_delete=models.CASCADE)
+     noticia = models.ForeignKey("Noticia", on_delete=models.CASCADE)
+     posicao = models.PositiveSmallIntegerField(default=0)
++    tema = models.CharField(
++        max_length=20, choices=Tema.choices, default=Tema.CIDADE,
++        help_text="Seção em que a notícia saiu nesta edição.",
++    )
+     outras_fontes = models.CharField(
+         max_length=300, blank=True,
+         help_text="Outros portais que também deram a notícia (usado no peso de relevância).",
+diff --git a/src/news/models/noticia_model.py b/src/news/models/noticia_model.py
+index 8ddd7be..203bf61 100644
+--- a/src/news/models/noticia_model.py
++++ b/src/news/models/noticia_model.py
+@@ -1,5 +1,7 @@
+ from django.db import models
+ 
++from news.temas import Tema
++
+ 
+ class Noticia(models.Model):
+     """Matéria coletada de uma fonte. Guardamos só o necessário para a manchete:
+@@ -8,7 +10,11 @@ class Noticia(models.Model):
+     titulo = models.CharField(max_length=300)
+     link = models.URLField(max_length=500, unique=True)
+     resumo = models.TextField(blank=True, verbose_name="Resumo")
+-    categoria = models.CharField(max_length=100, blank=True)
++    categoria = models.CharField(max_length=100, blank=True, help_text="Categoria original do portal.")
++    tema = models.CharField(
++        max_length=20, choices=Tema.choices, default=Tema.CIDADE, db_index=True,
++        help_text="Seção do jornal. Classificada automaticamente; pode ser corrigida aqui.",
++    )
+     conteudo_bruto = models.TextField(blank=True, verbose_name="Conteúdo bruto (HTML do feed)")
+     publicado_em = models.DateTimeField(verbose_name="Publicado em", db_index=True)
+     coletado_em = models.DateTimeField(auto_now_add=True, verbose_name="Coletado em")
+diff --git a/src/news/services/coleta.py b/src/news/services/coleta.py
+index 8c3bfbc..5152557 100644
+--- a/src/news/services/coleta.py
++++ b/src/news/services/coleta.py
+@@ -19,6 +19,7 @@ from django.db import IntegrityError, transaction
+ from django.utils import timezone
+ 
+ from news.models import FonteNoticia, Noticia
++from news.services.temas import classificar
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -86,15 +87,89 @@ def limpar_texto(texto):
+     return re.sub(r"\s+", " ", texto).strip()
+ 
+ 
+-def resumir(texto, limite=None):
+-    """Corta o texto no limite sem quebrar palavra e fecha com reticências."""
++# ---------------------------------------------------------------------------
++# Resumo por frases (sem reticências)
++# ---------------------------------------------------------------------------
++# Palavras que terminam com ponto mas não encerram a frase ("Sr. Fulano", "Av. Epitácio").
++ABREVIACOES = {
++    "sr", "sra", "srta", "dr", "dra", "prof", "profa", "av", "jr", "dep", "gov", "pres",
++    "min", "sen", "ver", "cel", "sgt", "cap", "ten", "gen", "maj", "exmo", "exma", "vol",
++    "pag", "art", "inc", "ltda", "cia", "nº", "no", "n", "tel", "aprox", "obs", "ex",
++}
++FIM_DE_FRASE = re.compile(r"[.!?…]+[\"”’)]*\s+")
++PONTUACAO_FINAL = re.compile(r"[.!?…][\"”’)]*$")
++
++
++def dividir_frases(texto):
++    """Divide em frases sem confundir abreviações, iniciais ("J. Silva") e números."""
++    frases, inicio = [], 0
++    for m in FIM_DE_FRASE.finditer(texto):
++        fim = m.end()
++        proximo = texto[fim:fim + 1]
++        if not proximo or not (proximo.isupper() or proximo.isdigit() or proximo in "\"“'‘"):
++            continue
++        palavra = re.search(r"(\S+)$", texto[:m.start()])
++        anterior = palavra.group(1).lower().strip("(\"“") if palavra else ""
++        if anterior in ABREVIACOES or (len(anterior) == 1 and anterior.isalpha()):
++            continue
++        frases.append(texto[inicio:fim].strip())
++        inicio = fim
++    resto = texto[inicio:].strip()
++    if resto:
++        frases.append(resto)
++    return frases
++
++
++def _fechar_frase(texto):
++    """Garante pontuação final ("... de brigas" → "... de brigas.")."""
++    texto = texto.strip().rstrip(",;:-–— ")
++    if not PONTUACAO_FINAL.search(texto):
++        texto += "."
++    return texto
++
++
++def resumir(texto, limite=None, teto=None):
++    """Junta frases inteiras até o limite. Se a 1ª frase sozinha passar do limite,
++    aceita até o teto para não cortá-la. Devolve ``None`` se nem isso couber."""
+     limite = limite or _config("TAMANHO_RESUMO")
++    teto = teto or _config("TETO_RESUMO")
++    texto = (texto or "").strip()
++    if not texto:
++        return None
+     if len(texto) <= limite:
+-        return texto
++        return _fechar_frase(texto)
++
++    frases = dividir_frases(texto)
++    resumo = ""
++    for frase in frases:
++        candidato = f"{resumo} {frase}".strip()
++        if len(candidato) > limite:
++            break
++        resumo = candidato
++    if resumo:
++        return _fechar_frase(resumo)
++    if len(frases[0]) <= teto:
++        return _fechar_frase(frases[0])
++    return None
++
++
++def cortar_com_reticencias(texto, limite=None):
++    """Último recurso, quando nenhuma fonte tem frase que caiba no teto."""
++    limite = limite or _config("TAMANHO_RESUMO")
+     corte = texto[:limite].rsplit(" ", 1)[0].rstrip(",;:-–— ")
+     return corte + "…"
+ 
+ 
++def melhor_resumo(candidatos):
++    """Tenta cada texto candidato, na ordem de preferência, até um fechar a frase."""
++    candidatos = [c for c in candidatos if c]
++    for texto in candidatos:
++        resumo = resumir(texto)
++        if resumo:
++            return resumo
++    return cortar_com_reticencias(candidatos[0]) if candidatos else ""
++
++
+ def _paragrafos_do_conteudo(html_conteudo):
+     """Pega só os <p> do content:encoded, ignorando figuras, legendas e listas."""
+     soup = BeautifulSoup(html_conteudo, "html.parser")
+@@ -104,24 +179,33 @@ def _paragrafos_do_conteudo(html_conteudo):
+     return " ".join(p for p in paragrafos if p)
+ 
+ 
+-def _resumo_do_item(item, titulo):
+-    # 1) G1: <atom:subtitle> é a linha fina, o melhor resumo possível.
+-    subtitulo = limpar_texto(item.get("subtitle", ""))
+-    if subtitulo:
+-        return resumir(subtitulo)
++def _sem_titulo_no_inicio(texto, titulo):
++    """O description do G1 repete o título no começo; tiramos."""
++    if titulo and texto.lower().startswith(titulo.lower()):
++        return texto[len(titulo):].strip()
++    return texto
++
+ 
++def candidatos_do_conteudo(conteudo_html, titulo):
++    """Textos que podem virar resumo a partir do HTML guardado em ``conteudo_bruto``."""
++    return [
++        _paragrafos_do_conteudo(conteudo_html),
++        _sem_titulo_no_inicio(limpar_texto(conteudo_html), titulo),
++    ]
++
++
++def _resumo_do_item(item, titulo):
++    candidatos = [
++        # 1) G1: <atom:subtitle> é a linha fina, o melhor resumo possível.
++        limpar_texto(item.get("subtitle", "")),
++    ]
+     # 2) Jornal da Paraíba: o <description> começa com o crédito da foto,
+     #    então preferimos os parágrafos do content:encoded.
+     for conteudo in item.get("content", []):
+-        texto = _paragrafos_do_conteudo(conteudo.get("value", ""))
+-        if texto:
+-            return resumir(texto)
+-
+-    # 3) Último recurso: o description, tirando o título repetido no início (padrão do G1).
+-    texto = limpar_texto(item.get("summary", ""))
+-    if texto.lower().startswith(titulo.lower()):
+-        texto = texto[len(titulo):].strip()
+-    return resumir(texto)
++        candidatos.append(_paragrafos_do_conteudo(conteudo.get("value", "")))
++    # 3) Último recurso: o description, sem o título repetido no início (padrão do G1).
++    candidatos.append(_sem_titulo_no_inicio(limpar_texto(item.get("summary", "")), titulo))
++    return melhor_resumo(candidatos)
+ 
+ 
+ def _data_publicacao(item, agora):
+@@ -158,12 +242,14 @@ def extrair_itens(conteudo_xml, agora=None):
+         if categoria.upper() == "G1":  # o G1 põe o nome do portal como categoria
+             categoria = ""
+         conteudo = item.get("content", [{}])[0].get("value", "") or item.get("summary", "")
++        resumo = _resumo_do_item(item, titulo)
+         itens.append(
+             {
+                 "titulo": titulo[:300],
+                 "link": link[:500],
+-                "resumo": _resumo_do_item(item, titulo),
++                "resumo": resumo,
+                 "categoria": categoria[:100],
++                "tema": classificar(titulo, resumo, categoria, link),
+                 "conteudo_bruto": conteudo,
+                 "publicado_em": _data_publicacao(item, agora),
+             }
+diff --git a/src/news/services/montagem.py b/src/news/services/montagem.py
+index 3444112..289f268 100644
+--- a/src/news/services/montagem.py
++++ b/src/news/services/montagem.py
+@@ -1,10 +1,18 @@
+-"""Montagem da edição do dia: escolhe as notícias, remove pautas repetidas e ordena.
++"""Montagem das edições (manhã e noturna): escolhe as notícias, remove pautas
++repetidas, ordena por relevância e agrupa por tema.
++
++Janela de tempo: cada edição pega o que foi publicado desde o corte da edição anterior
++(a da manhã pega a noite e a madrugada; a noturna pega o dia).
+ 
+ Critério de relevância (simples e explicável):
+ 1. Pauta que saiu em mais de um portal vale mais (se G1 e Jornal da Paraíba deram,
+    é assunto do dia). A mais repercutida vira a manchete.
+ 2. O resto entra alternando os portais, do mais recente para o mais antigo, para a
+    edição não virar "o G1 impresso".
++3. No máximo N notícias por tema, para uma seção não engolir as outras.
++
++Sem repeteco: fica de fora o que já saiu numa edição anterior, inclusive a mesma
++história republicada pelo portal com outro link.
+ """
+ import re
+ import unicodedata
+@@ -17,6 +25,7 @@ from django.db import transaction
+ from django.utils import timezone
+ 
+ from news.models import Edicao, EdicaoNoticia, Noticia
++from news.temas import ORDEM_TEMAS, Tema
+ 
+ PALAVRAS_VAZIAS = set(
+     """
+@@ -109,43 +118,150 @@ def links_de_outros_portais(pauta):
+     return links
+ 
+ 
+-def referencia_da_data(data):
+-    """Momento de corte da edição: agora (edição de hoje) ou o fim do dia (edição passada)."""
+-    agora = timezone.now()
+-    if data >= timezone.localdate():
+-        return agora
+-    fim_do_dia = datetime.combine(data, dt_time(23, 59, 59))
+-    return timezone.make_aware(fim_do_dia)
++# Conteúdo de rotina entra na seção, mas nunca abre o jornal como manchete.
++ROTINEIRAS = re.compile(
++    r"previs[aã]o do tempo|aprenda a receita|resolva quest|agenda cultural|"
++    r"^v[ií]deo[s]?:|^ao vivo|hor[oó]scopo|resultado da (mega|lotof|quina)",
++    re.IGNORECASE,
++)
++
++
++def eh_rotineira(pauta):
++    return bool(ROTINEIRAS.search(pauta.principal.titulo))
++
++
++def tema_da_pauta(pauta):
++    return pauta.principal.tema or Tema.CIDADE
++
++
++# ---------------------------------------------------------------------------
++# Turnos e janela de tempo
++# ---------------------------------------------------------------------------
++TOLERANCIA_ATRASO = timedelta(hours=2)
++
++
++def turno_atual(agora=None):
++    """Antes do meio-dia é a Edição da Manhã; depois, a Noturna."""
++    agora = timezone.localtime(agora or timezone.now())
++    return Edicao.Turno.MANHA if agora.hour < 12 else Edicao.Turno.NOITE
++
++
++def horario_do_turno(data, turno):
++    chave = "HORARIO_MANHA" if turno == Edicao.Turno.MANHA else "HORARIO_NOITE"
++    hora, minuto = (int(x) for x in settings.PARAIPYTHON[chave].split(":"))
++    return timezone.make_aware(datetime.combine(data, dt_time(hora, minuto)))
++
++
++def fim_da_janela(data, turno, agora=None):
++    """Corte da edição: o momento em que o robô roda, mas nunca mais de 2h depois do
++    horário oficial. Assim, refazer a edição da manhã às 15h não puxa notícias da tarde."""
++    agora = agora or timezone.now()
++    return min(agora, horario_do_turno(data, turno) + TOLERANCIA_ATRASO)
+ 
+ 
+-def selecionar_pautas(data, limite=None, janela_horas=None):
++def inicio_da_janela(data, turno, fim):
++    """A janela começa onde a edição anterior parou (com teto, caso o robô falhe um dia)."""
++    cfg = settings.PARAIPYTHON
++    anterior = Edicao.anteriores_a(data, turno).exclude(fim_janela=None).first()
++    if anterior is None:
++        return fim - timedelta(hours=cfg["JANELA_HORAS"])
++    return max(anterior.fim_janela, fim - timedelta(hours=cfg["JANELA_MAXIMA_HORAS"]))
++
++
++# ---------------------------------------------------------------------------
++# Não repetir notícias de uma edição para outra
++# ---------------------------------------------------------------------------
++def ja_publicadas(data, turno):
++    """IDs de notícias que saíram em edições anteriores e títulos das pautas recentes.
++
++    Os títulos pegam o caso de o portal republicar a mesma história com link novo.
++    """
++    comparadas = settings.PARAIPYTHON["EDICOES_COMPARADAS"]
++    recentes = list(Edicao.anteriores_a(data, turno)[: max(comparadas, 6)])
++    rels = EdicaoNoticia.objects.filter(edicao__in=recentes).select_related("noticia")
++
++    ids = {rel.noticia_id for rel in rels}
++    titulos = []
++    comparar_com = {e.pk for e in recentes[:comparadas]}
++    links_extras = []
++    for rel in rels:
++        if rel.edicao_id in comparar_com:
++            titulos.append(rel.noticia.titulo)
++            links_extras.extend(item["link"] for item in rel.outros_links)
++    titulos.extend(Noticia.objects.filter(link__in=links_extras).values_list("titulo", flat=True))
++    return ids, titulos
++
++
++def eh_repeteco(pauta, titulos_anteriores, limiar):
++    return any(
++        similaridade(noticia.titulo, anterior) >= limiar
++        for noticia in pauta.noticias
++        for anterior in titulos_anteriores
++    )
++
++
++# ---------------------------------------------------------------------------
++# Seleção e montagem
++# ---------------------------------------------------------------------------
++def distribuir_por_tema(pautas, limite, max_por_tema):
++    """Manchete = pauta mais relevante. O resto entra por relevância, respeitando o teto
++    por tema, e depois é agrupado na ordem das seções do jornal."""
++    if not pautas:
++        return []
++    manchete = next((p for p in pautas if not eh_rotineira(p)), pautas[0])
++    escolhidas, contagem = [], {}
++    for pauta in pautas:
++        if pauta is manchete:
++            continue
++        if len(escolhidas) + 1 >= limite:
++            break
++        tema = tema_da_pauta(pauta)
++        if contagem.get(tema, 0) < max_por_tema:
++            contagem[tema] = contagem.get(tema, 0) + 1
++            escolhidas.append(pauta)
++    relevancia = {id(p): i for i, p in enumerate(escolhidas)}
++    escolhidas.sort(key=lambda p: (ORDEM_TEMAS.index(tema_da_pauta(p)), relevancia[id(p)]))
++    return [manchete] + escolhidas
++
++
++def selecionar_pautas(data, turno, limite=None, agora=None):
+     cfg = settings.PARAIPYTHON
+     limite = limite or cfg["NOTICIAS_POR_EDICAO"]
+-    janela_horas = janela_horas or cfg["JANELA_HORAS"]
+-    fim = referencia_da_data(data)
+-    inicio = fim - timedelta(hours=janela_horas)
++    fim = fim_da_janela(data, turno, agora)
++    inicio = inicio_da_janela(data, turno, fim)
++    ids_publicados, titulos_anteriores = ja_publicadas(data, turno)
++
+     noticias = (
+         Noticia.objects.filter(publicado_em__gt=inicio, publicado_em__lte=fim, fonte__ativa=True)
++        .exclude(pk__in=ids_publicados)
+         .select_related("fonte")
+         .order_by("-publicado_em")
+     )
+-    return ordenar_pautas(agrupar_pautas(list(noticias)))[:limite]
++    pautas = [
++        p for p in agrupar_pautas(list(noticias))
++        if not eh_repeteco(p, titulos_anteriores, cfg["LIMIAR_DUPLICADA"])
++    ]
++    selecionadas = distribuir_por_tema(ordenar_pautas(pautas), limite, cfg["MAX_POR_TEMA"])
++    return selecionadas, fim
+ 
+ 
+ @transaction.atomic
+-def montar_edicao(data=None, limite=None):
+-    """Cria (ou refaz) a edição da data com as notícias selecionadas.
++def montar_edicao(data=None, turno=None, limite=None, agora=None):
++    """Cria (ou refaz) a edição de (data, turno) com as notícias selecionadas.
+ 
+-    Retorna a edição, ou ``None`` se não houver nenhuma notícia na janela.
++    Retorna a edição, ou ``None`` se não houver nenhuma notícia nova na janela.
+     """
+     data = data or timezone.localdate()
+-    pautas = selecionar_pautas(data, limite=limite)
++    turno = turno or turno_atual(agora)
++    pautas, fim = selecionar_pautas(data, turno, limite=limite, agora=agora)
+     if not pautas:
+         return None
+ 
+-    edicao = Edicao.objects.filter(data_edicao=data).first()
++    edicao = Edicao.objects.filter(data_edicao=data, turno=turno).first()
+     if edicao is None:
+-        edicao = Edicao.objects.create(data_edicao=data, numero_edicao=Edicao.proximo_numero())
++        edicao = Edicao(data_edicao=data, turno=turno, numero_edicao=Edicao.proximo_numero())
++    edicao.fim_janela = fim
++    edicao.save()
+     EdicaoNoticia.objects.filter(edicao=edicao).delete()
+ 
+     EdicaoNoticia.objects.bulk_create(
+@@ -154,6 +270,7 @@ def montar_edicao(data=None, limite=None):
+                 edicao=edicao,
+                 noticia=pauta.principal,
+                 posicao=posicao,
++                tema=tema_da_pauta(pauta),
+                 outras_fontes=", ".join(f for f in pauta.fontes if f != pauta.principal.fonte.nome),
+                 outros_links=links_de_outros_portais(pauta),
+             )
+diff --git a/src/news/services/pdf_generator.py b/src/news/services/pdf_generator.py
+index 1ef5573..c011543 100644
+--- a/src/news/services/pdf_generator.py
++++ b/src/news/services/pdf_generator.py
+@@ -12,6 +12,7 @@ from django.template.loader import render_to_string
+ from django.utils import timezone, translation
+ 
+ from news.models import Edicao
++from news.temas import Tema
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -29,25 +30,53 @@ def romano(numero):
+     return saida
+ 
+ 
++def _hora(texto_hhmm):
++    hora, minuto = texto_hhmm.split(":")
++    return f"{int(hora):02d}h{minuto}"
++
++
+ def montar_contexto(edicao):
++    """Manchete no topo e o resto agrupado em seções (temas), na ordem do jornal.
++
++    Os números [n] seguem a ordem em que as notícias aparecem no PDF.
++    """
++    rotulos = dict(Tema.choices)
++    relacoes = list(edicao.edicaonoticia_set.select_related("noticia__fonte").order_by("posicao"))
++
+     itens = []
+-    relacoes = edicao.edicaonoticia_set.select_related("noticia__fonte").order_by("posicao")
+     for numero, rel in enumerate(relacoes, start=1):
+         itens.append(
+             {
+-                "ref": numero,  # número da notícia na seção de Referências
++                "ref": numero,
+                 "noticia": rel.noticia,
++                "tema": rel.tema,
++                "tema_nome": rotulos.get(rel.tema, rel.tema),
+                 "outras_fontes": rel.outras_fontes,
+                 "outros_links": rel.outros_links,
+             }
+         )
+-    fontes = sorted({i["noticia"].fonte.nome for i in itens})
++
++    manchete = itens[0] if itens else None
++    secoes = []
++    for item in itens[1:]:
++        if not secoes or secoes[-1]["slug"] != item["tema"]:
++            secoes.append({"slug": item["tema"], "nome": item["tema_nome"], "itens": []})
++        secoes[-1]["itens"].append(item)
++    for secao in secoes:
++        # 1 notícia: largura total; 2 notícias: 2 colunas; 3 ou mais: 3 colunas.
++        secao["colunas"] = min(len(secao["itens"]), 3)
++
++    cfg = settings.PARAIPYTHON
++    noite = edicao.eh_noite
+     return {
+         "edicao": edicao,
+-        "manchete": itens[0] if itens else None,
+-        "demais": itens[1:],
++        "noite": noite,
++        "turno_nome": edicao.get_turno_display(),
++        "hora_turno": _hora(cfg["HORARIO_NOITE"] if noite else cfg["HORARIO_MANHA"]),
++        "manchete": manchete,
++        "secoes": secoes,
+         "referencias": itens,
+-        "fontes": fontes,
++        "fontes": sorted({i["noticia"].fonte.nome for i in itens}),
+         "gerado_em": timezone.localtime(),
+         "anno": romano(max(edicao.data_edicao.year - 2025, 1)),  # o Expresso PB nasceu em 2026: Anno I
+     }
+@@ -98,7 +127,7 @@ def _salvar_sobrescrevendo(campo, nome, conteudo):
+ def gerar_pdf_da_edicao(edicao: Edicao):
+     """Gera o PDF (e a miniatura) e grava nos campos da edição."""
+     pdf_bytes = renderizar_pdf(edicao)
+-    nome_base = f"expresso-pb-{edicao.data_edicao.isoformat()}"
++    nome_base = f"expresso-pb-{edicao.data_edicao.isoformat()}-{edicao.turno}"
+ 
+     _salvar_sobrescrevendo(edicao.arquivo_pdf, f"{nome_base}.pdf", pdf_bytes)
+     capa = gerar_capa_png(pdf_bytes)
+diff --git a/src/news/services/temas.py b/src/news/services/temas.py
+new file mode 100644
+index 0000000..d603a74
+--- /dev/null
++++ b/src/news/services/temas.py
+@@ -0,0 +1,130 @@
++"""Classifica cada notícia num tema (seção do jornal).
++
++Como funciona:
++- cada tema tem uma lista de palavras-chave (sem acento, minúsculas);
++- palavra no título vale 2 pontos, no resumo vale 1;
++- a categoria do portal (o Jornal da Paraíba manda "Esportes", "Política"...) dá um bônus;
++- vence o tema com mais pontos; sem nenhum ponto, a notícia vai para Cidade.
++
++Para ajustar, edite as listas abaixo e rode ``python manage.py reprocessar_noticias``.
++"""
++import re
++import unicodedata
++
++from news.temas import Tema
++
++# Palavras inteiras, sem acento. Com "*" no fim vira radical: "assassin*" pega
++# assassinato, assassinado... Hífen casa com espaço ou hífen ("sao-joao").
++PALAVRAS = {
++    Tema.POLICIA: """
++        policia policial policiais preso presa presos prisao prende* homicidio* assassin*
++        morto morta mortos mata matou matar faca facada tiro tiros baleado baleada
++        crime crimes criminos* suspeito suspeita suspeitos delegacia delegado droga drogas
++        trafico assalto* roubo roubada roubado furto acidente acidentes colisao capot*
++        atropel* flagrante emboscada corpo foragido mandado mandados operacao investig*
++        vitima violencia agressao agredi* golpe golpes presidio atira* atirou atingid*
++        disparo* esfaque* sequestr*
++    """,
++    Tema.POLITICA: """
++        governo governador governadora prefeito prefeita vereador vereadora vereadores
++        deputado deputada deputados assembleia alpb senador senadora eleicao eleicoes
++        eleitoral partido mandato tse tre candidato candidata ministro ministra presidente
++        lula congresso camara-municipal secretario secretaria projeto-de-lei sancion* vetad*
++    """,
++    Tema.ECONOMIA: """
++        emprego empregos desemprego salario salarios inflacao preco precos comercio
++        concurso concursos inss imposto impostos ipva iptu empresa empresas combustivel
++        gasolina sine vagas economia economic* consumidor consumidores procon pib ibge
++        black-friday decimo-terceiro aposentadoria fgts
++    """,
++    Tema.EDUCACAO: """
++        enem escola escolas aluno alunos aluna estudante estudantes professor professora
++        professores universidade universidades ufpb uepb ifpb vestibular sisu matricula*
++        aula aulas educacao ensino faculdade redacao
++    """,
++    Tema.SAUDE: """
++        saude hospital hospitais vacina vacinas vacinacao sus dengue chikungunya covid upa
++        doenca doencas cancer hemocentro sangue cirurgia paciente pacientes surto virus
++        epidemia medicamento* remedio* hemodialise
++    """,
++    Tema.CLIMA: """
++        chuva chuvas chover inmet temporal temperatura temperaturas calor frio praia praias
++        mar mares mare ambiente ambiental desmatamento aesa seca estiagem ventos vendaval
++        enchente* alagamento* previsao-do-tempo clima climatic* reciclagem lixo poluicao
++        animal animais resgatado resgatada
++    """,
++    Tema.ESPORTES: """
++        botafogo-pb botafogo treze campinense paraibano futebol gol gols campeonato almeidao
++        amigao serie-c serie-d atleta atletas corrida maratona torcida tecnico partida
++        vence venceu empate rodada copa
++    """,
++    Tema.CULTURA: """
++        show shows festival festa festas sao-joao musica musico cantor cantora cinema
++        cinemas filme teatro exposicao turismo turistas carnaval artista artistas livro
++        livros literaria literario cultura cultural espetaculo apresentacao forro orquestra
++        receita receitas
++    """,
++}
++
++# Categoria do portal → tema (bônus, não decisão: "Cotidiano" do JP inclui crimes).
++CATEGORIAS = {
++    "esportes": Tema.ESPORTES,
++    "esporte": Tema.ESPORTES,
++    "politica": Tema.POLITICA,
++    "economia": Tema.ECONOMIA,
++    "educacao": Tema.EDUCACAO,
++    "saude": Tema.SAUDE,
++    "meio ambiente": Tema.CLIMA,
++    "clima": Tema.CLIMA,
++    "cultura": Tema.CULTURA,
++    "entretenimento": Tema.CULTURA,
++    "policia": Tema.POLICIA,
++    "seguranca": Tema.POLICIA,
++}
++BONUS_CATEGORIA = 3
++
++
++def normalizar(texto):
++    sem_acento = "".join(
++        c for c in unicodedata.normalize("NFKD", texto or "") if not unicodedata.combining(c)
++    )
++    return sem_acento.lower()
++
++
++def _compilar():
++    regras = {}
++    for tema, palavras in PALAVRAS.items():
++        termos = []
++        for palavra in palavras.split():
++            radical = palavra.endswith("*")
++            termo = re.escape(palavra.rstrip("*")).replace(r"\-", r"[\s-]").replace("-", r"[\s-]")
++            termos.append(termo + (r"\w*" if radical else r"\b"))
++        regras[tema] = re.compile(r"\b(?:" + "|".join(termos) + ")", re.IGNORECASE)
++    return regras
++
++
++REGRAS = _compilar()
++
++
++def pontuar(titulo, resumo="", categoria="", link=""):
++    titulo_n, resumo_n = normalizar(titulo), normalizar(resumo)
++    pontos = {}
++    for tema, regra in REGRAS.items():
++        total = 2 * len(regra.findall(titulo_n)) + len(regra.findall(resumo_n))
++        if total:
++            pontos[tema] = total
++    tema_categoria = CATEGORIAS.get(normalizar(categoria).strip())
++    if tema_categoria:
++        pontos[tema_categoria] = pontos.get(tema_categoria, 0) + BONUS_CATEGORIA
++    if "ge.globo.com" in (link or ""):
++        pontos[Tema.ESPORTES] = pontos.get(Tema.ESPORTES, 0) + BONUS_CATEGORIA
++    return pontos
++
++
++def classificar(titulo, resumo="", categoria="", link=""):
++    pontos = pontuar(titulo, resumo, categoria, link)
++    if not pontos:
++        return Tema.CIDADE
++    # Empate: vale a ordem das seções do jornal (Polícia antes de Política etc.).
++    ordem = list(Tema)
++    return max(pontos, key=lambda tema: (pontos[tema], -ordem.index(tema)))
+diff --git a/src/news/temas.py b/src/news/temas.py
+new file mode 100644
+index 0000000..1ab5d2a
+--- /dev/null
++++ b/src/news/temas.py
+@@ -0,0 +1,18 @@
++"""Temas (seções) do jornal, na ordem em que aparecem na edição."""
++from django.db import models
++
++
++class Tema(models.TextChoices):
++    CIDADE = "cidade", "Cidade"
++    POLICIA = "policia", "Polícia"
++    POLITICA = "politica", "Política"
++    ECONOMIA = "economia", "Economia"
++    EDUCACAO = "educacao", "Educação"
++    SAUDE = "saude", "Saúde"
++    CLIMA = "clima", "Clima & Ambiente"
++    ESPORTES = "esportes", "Esportes"
++    CULTURA = "cultura", "Cultura"
++
++
++# Ordem das seções no PDF (a mesma da declaração acima).
++ORDEM_TEMAS = [t.value for t in Tema]
+diff --git a/src/news/tests/base.py b/src/news/tests/base.py
+index 1cb5fa5..8ec5496 100644
+--- a/src/news/tests/base.py
++++ b/src/news/tests/base.py
+@@ -1,12 +1,14 @@
+ import shutil
+ import tempfile
+-from datetime import date
++from datetime import date, datetime
+ from pathlib import Path
+ 
+ from django.test import TestCase, override_settings
++from django.utils import timezone
+ 
+ from news.models import FonteNoticia
+ from news.services.coleta import coletar_fonte
++from news.services.montagem import montar_edicao
+ 
+ FIXTURES = Path(__file__).parent / "fixtures"
+ DIA_FIXTURES = date(2026, 11, 15)  # data das notícias dos feeds de exemplo
+@@ -16,6 +18,16 @@ def ler_fixture(nome):
+     return (FIXTURES / nome).read_bytes()
+ 
+ 
++def as_horas(dia, hora, minuto=0):
++    """Momento em horário de João Pessoa (o robô "roda" nesse instante)."""
++    return timezone.make_aware(datetime(dia.year, dia.month, dia.day, hora, minuto))
++
++
++def montar(dia=DIA_FIXTURES, turno="noite", hora=19, **kwargs):
++    """Monta a edição como se o cron tivesse rodado no horário dado."""
++    return montar_edicao(dia, turno, agora=as_horas(dia, hora), **kwargs)
++
++
+ class ParaipythonTestCase(TestCase):
+     """Base: MEDIA_ROOT temporário e atalhos para carregar os feeds de exemplo."""
+ 
+diff --git a/src/news/tests/test_coleta.py b/src/news/tests/test_coleta.py
+index 1791929..53116ed 100644
+--- a/src/news/tests/test_coleta.py
++++ b/src/news/tests/test_coleta.py
+@@ -4,7 +4,9 @@ from unittest import mock
+ import requests
+ 
+ from news.models import FonteNoticia, Noticia
+-from news.services.coleta import coletar_fonte, extrair_itens, resumir
++from news.services.coleta import (
++    coletar_fonte, dividir_frases, extrair_itens, melhor_resumo, resumir,
++)
+ 
+ from .base import ParaipythonTestCase, ler_fixture
+ 
+@@ -49,11 +51,39 @@ class ExtrairItensJornalDaParaibaTest(ParaipythonTestCase):
+ 
+ 
+ class UtilidadesTest(ParaipythonTestCase):
+-    def test_resumir_corta_sem_quebrar_palavra(self):
+-        texto = "palavra " * 100
+-        resumo = resumir(texto.strip(), limite=50)
+-        self.assertLessEqual(len(resumo), 51)
+-        self.assertTrue(resumo.endswith("palavra…"))
++    def test_dividir_frases_respeita_abreviacoes_e_numeros(self):
++        texto = "O Sr. Silva mora na Av. Epitácio. Pagou R$ 1.500 ao dr. J. Souza! Depois saiu."
++        self.assertEqual(dividir_frases(texto), [
++            "O Sr. Silva mora na Av. Epitácio.", "Pagou R$ 1.500 ao dr. J. Souza!", "Depois saiu.",
++        ])
++
++    def test_resumo_junta_frases_inteiras_sem_reticencias(self):
++        texto = "Primeira frase curta. " + "Segunda frase " + "longa " * 60 + "fim."
++        resumo = resumir(texto, limite=100, teto=150)
++        self.assertEqual(resumo, "Primeira frase curta.")
++
++    def test_primeira_frase_longa_usa_o_teto(self):
++        frase = "Uma frase " + "comprida " * 40 + "termina aqui."  # ~370 caracteres
++        self.assertEqual(resumir(frase + " Outra.", limite=320, teto=450), frase)
++
++    def test_frase_maior_que_o_teto_devolve_none(self):
++        self.assertIsNone(resumir("palavra " * 100, limite=50, teto=80))
++
++    def test_fecha_frase_sem_ponto(self):
++        self.assertEqual(resumir("Os dois tinham histórico de brigas"), "Os dois tinham histórico de brigas.")
++
++    def test_melhor_resumo_tenta_a_proxima_fonte(self):
++        longo = "palavra " * 100
++        self.assertEqual(melhor_resumo([longo, "Resumo alternativo"]), "Resumo alternativo.")
++
++    def test_reticencias_so_como_ultimo_recurso(self):
++        self.assertTrue(melhor_resumo(["palavra " * 100]).endswith("…"))
++
++    def test_feeds_de_exemplo_sem_reticencias(self):
++        for nome in ("g1_pb.xml", "jornal_da_paraiba.xml"):
++            for item in extrair_itens(ler_fixture(nome), agora=AGORA):
++                self.assertFalse(item["resumo"].endswith("…"), item["resumo"])
++                self.assertRegex(item["resumo"], r"[.!?…][\"”’)]*$")
+ 
+     def test_data_no_futuro_vira_momento_da_coleta(self):
+         xml = b"""<rss version="2.0"><channel><title>x</title><item><title>Teste</title>
+@@ -87,3 +117,29 @@ class ColetarFonteTest(ParaipythonTestCase):
+         resultado = coletar_fonte(pbagora, b"<html></html>")
+         self.assertEqual(resultado.novas, 0)
+         self.assertFalse(resultado.ok)
++
++
++class ReprocessarNoticiasTest(ParaipythonTestCase):
++    def test_refaz_resumo_com_reticencias_e_tema(self):
++        from io import StringIO
++
++        from django.core.management import call_command
++
++        noticia = Noticia.objects.create(
++            titulo="Homem é preso suspeito de assalto em João Pessoa",
++            link="https://exemplo.com/assalto",
++            resumo="A polícia prendeu um homem suspeito de assaltar uma farmácia no bairro…",
++            conteudo_bruto="<p>A polícia prendeu um homem suspeito de assaltar uma farmácia no bairro "
++                           "dos Bancários. Ele foi levado para a Central de Polícia.</p>",
++            publicado_em=AGORA,
++            fonte=self.g1,
++            tema="cidade",
++        )
++        call_command("reprocessar_noticias", stdout=StringIO())
++        noticia.refresh_from_db()
++        self.assertEqual(
++            noticia.resumo,
++            "A polícia prendeu um homem suspeito de assaltar uma farmácia no bairro dos Bancários. "
++            "Ele foi levado para a Central de Polícia.",
++        )
++        self.assertEqual(noticia.tema, "policia")
+diff --git a/src/news/tests/test_montagem.py b/src/news/tests/test_montagem.py
+index 26d33c6..2b0411a 100644
+--- a/src/news/tests/test_montagem.py
++++ b/src/news/tests/test_montagem.py
+@@ -1,9 +1,14 @@
+-from datetime import date
++from datetime import date, timedelta
+ 
+-from news.models import Edicao
+-from news.services.montagem import montar_edicao, similaridade
++from django.test import override_settings
+ 
+-from .base import DIA_FIXTURES, ParaipythonTestCase
++from news.models import Edicao, Noticia
++from news.services.montagem import (
++    distribuir_por_tema, fim_da_janela, montar_edicao, similaridade, turno_atual,
++)
++from news.temas import ORDEM_TEMAS
++
++from .base import DIA_FIXTURES, ParaipythonTestCase, as_horas, montar
+ 
+ 
+ class SimilaridadeTest(ParaipythonTestCase):
+@@ -22,10 +27,23 @@ class SimilaridadeTest(ParaipythonTestCase):
+             "Homem é encontrado morto em fazenda, na Grande João Pessoa",
+             "Homem atira em irmão após desentendimento familiar, em João Pessoa",
+         ), 0.6)
+-        self.assertLess(similaridade(
+-            "Servidor público aposentado faz Enem 2026 para tentar nova carreira, na Paraíba",
+-            "Professor de história faz Enem pela quinta vez para tentar vaga em geografia",
+-        ), 0.6)
++
++
++class TurnosTest(ParaipythonTestCase):
++    def test_turno_pelo_horario(self):
++        self.assertEqual(turno_atual(as_horas(DIA_FIXTURES, 6)), Edicao.Turno.MANHA)
++        self.assertEqual(turno_atual(as_horas(DIA_FIXTURES, 19)), Edicao.Turno.NOITE)
++
++    def test_janela_nao_passa_de_2h_depois_do_horario_oficial(self):
++        # Refazer a edição da manhã às 15h não pode puxar notícias da tarde.
++        fim = fim_da_janela(DIA_FIXTURES, "manha", agora=as_horas(DIA_FIXTURES, 15))
++        self.assertEqual(fim, as_horas(DIA_FIXTURES, 8))
++
++    @override_settings(PARAIPYTHON={**__import__("django.conf").conf.settings.PARAIPYTHON,
++                                    "HORARIO_NOITE": "19:30"})
++    def test_horario_configuravel(self):
++        fim = fim_da_janela(DIA_FIXTURES, "noite", agora=as_horas(DIA_FIXTURES, 23))
++        self.assertEqual(fim, as_horas(DIA_FIXTURES, 21, 30))
+ 
+ 
+ class MontarEdicaoTest(ParaipythonTestCase):
+@@ -33,39 +51,101 @@ class MontarEdicaoTest(ParaipythonTestCase):
+         super().setUp()
+         self.carregar_feeds()
+ 
+-    def test_pautas_repercutidas_abrem_a_edicao(self):
+-        edicao = montar_edicao(DIA_FIXTURES)
+-        rels = list(edicao.edicaonoticia_set.order_by("posicao"))
++    def rels(self, edicao):
++        return list(edicao.edicaonoticia_set.select_related("noticia").order_by("posicao"))
++
++    def test_pauta_repercutida_vira_manchete(self):
++        rels = self.rels(montar())
+         self.assertIn("Mulher mata ex", rels[0].noticia.titulo)
+-        self.assertTrue(rels[0].outras_fontes)
+         self.assertEqual(rels[0].outros_links[0]["fonte"], "g1 PB")
+         self.assertIn("g1.globo.com", rels[0].outros_links[0]["link"])
+-        self.assertIn("Inmet", rels[1].noticia.titulo)
+ 
+-    def test_nao_repete_a_mesma_pauta(self):
+-        edicao = montar_edicao(DIA_FIXTURES)
+-        titulos = [n.titulo for n in edicao.noticias.all()]
++    def test_nao_repete_a_mesma_pauta_na_edicao(self):
++        titulos = [n.titulo for n in montar().noticias.all()]
+         self.assertEqual(sum("Mulher mata ex" in t for t in titulos), 1)
+ 
+-    def test_noticia_antiga_fica_de_fora(self):
+-        edicao = montar_edicao(DIA_FIXTURES)
+-        self.assertFalse(edicao.noticias.filter(titulo__icontains="Festival de inverno").exists())
++    def test_secoes_na_ordem_do_jornal(self):
++        temas = [r.tema for r in self.rels(montar())[1:]]  # sem a manchete
++        self.assertEqual(temas, sorted(temas, key=ORDEM_TEMAS.index))
++
++    @override_settings(PARAIPYTHON={**__import__("django.conf").conf.settings.PARAIPYTHON,
++                                    "MAX_POR_TEMA": 2})
++    def test_teto_por_tema(self):
++        temas = [r.tema for r in self.rels(montar())[1:]]
++        for tema in set(temas):
++            self.assertLessEqual(temas.count(tema), 2)
+ 
+     def test_limite_de_noticias(self):
+-        edicao = montar_edicao(DIA_FIXTURES, limite=5)
+-        self.assertEqual(edicao.noticias.count(), 5)
++        self.assertEqual(montar(limite=5).noticias.count(), 5)
++
++    def test_noticia_antiga_fica_de_fora(self):
++        self.assertFalse(montar().noticias.filter(titulo__icontains="Festival de inverno").exists())
+ 
+-    def test_refazer_mantem_numero(self):
+-        primeira = montar_edicao(DIA_FIXTURES)
+-        segunda = montar_edicao(DIA_FIXTURES)
++    def test_refazer_mantem_numero_e_edicao(self):
++        primeira = montar()
++        segunda = montar()
+         self.assertEqual(primeira.pk, segunda.pk)
+         self.assertEqual(Edicao.objects.count(), 1)
+-        self.assertEqual(segunda.numero_edicao, 1)
+-
+-    def test_numeracao_sequencial(self):
+-        montar_edicao(DIA_FIXTURES)
+-        Edicao.objects.create(data_edicao=date(2026, 11, 16), numero_edicao=Edicao.proximo_numero())
+-        self.assertEqual(Edicao.objects.get(data_edicao=date(2026, 11, 16)).numero_edicao, 2)
+ 
+     def test_sem_noticias_nao_cria_edicao(self):
+-        self.assertIsNone(montar_edicao(date(2020, 1, 1)))
++        self.assertIsNone(montar(dia=date(2020, 1, 1)))
++
++
++class SemRepetecoTest(ParaipythonTestCase):
++    """Manhã e noite do mesmo dia não podem repetir notícia."""
++
++    def setUp(self):
++        super().setUp()
++        self.carregar_feeds()
++        self.manha = montar(turno="manha", hora=6)
++        self.noite = montar(turno="noite", hora=19)
++
++    def test_duas_edicoes_no_mesmo_dia_com_numeracao_corrida(self):
++        self.assertEqual((self.manha.numero_edicao, self.noite.numero_edicao), (1, 2))
++
++    def test_noite_comeca_onde_a_manha_parou(self):
++        corte = self.manha.fim_janela
++        for noticia in self.noite.noticias.all():
++            self.assertGreater(noticia.publicado_em, corte)
++
++    def test_nenhuma_noticia_repetida(self):
++        ids_manha = set(self.manha.noticias.values_list("pk", flat=True))
++        ids_noite = set(self.noite.noticias.values_list("pk", flat=True))
++        self.assertFalse(ids_manha & ids_noite)
++
++    def test_mesma_pauta_com_link_novo_nao_volta(self):
++        # O portal republica a manchete da manhã à tarde, com outro endereço.
++        original = self.manha.edicaonoticia_set.get(posicao=0).noticia
++        Noticia.objects.create(
++            titulo=original.titulo + " (atualizada)",
++            link=original.link + "?atualizacao=1",
++            resumo="Nova versão da mesma história.",
++            publicado_em=as_horas(DIA_FIXTURES, 17),
++            fonte=original.fonte,
++            tema=original.tema,
++        )
++        noite = montar(turno="noite", hora=19)
++        self.assertFalse(noite.noticias.filter(link__endswith="?atualizacao=1").exists())
++
++    def test_dia_seguinte_sem_novidades_nao_publica(self):
++        self.assertIsNone(montar(dia=DIA_FIXTURES + timedelta(days=1), turno="manha", hora=6))
++
++
++class DistribuirPorTemaTest(ParaipythonTestCase):
++    def test_rotina_nao_vira_manchete(self):
++        self.carregar_feeds()
++        Noticia.objects.create(
++            titulo="Previsão do tempo hoje para João Pessoa (PB): sol com nuvens",
++            link="https://exemplo.com/previsao", resumo="Sol.", tema="clima",
++            publicado_em=as_horas(DIA_FIXTURES, 18, 50), fonte=self.g1,
++        )
++        manchete = montar().edicaonoticia_set.get(posicao=0).noticia
++        self.assertNotIn("Previsão do tempo", manchete.titulo)
++
++    def test_lista_vazia(self):
++        self.assertEqual(distribuir_por_tema([], 16, 4), [])
++
++    def test_montar_edicao_sem_turno_usa_o_horario(self):
++        self.carregar_feeds()
++        edicao = montar_edicao(DIA_FIXTURES, agora=as_horas(DIA_FIXTURES, 19))
++        self.assertEqual(edicao.turno, Edicao.Turno.NOITE)
+diff --git a/src/news/tests/test_pdf_e_views.py b/src/news/tests/test_pdf_e_views.py
+index 3ca24ec..d292754 100644
+--- a/src/news/tests/test_pdf_e_views.py
++++ b/src/news/tests/test_pdf_e_views.py
+@@ -8,10 +8,9 @@ from django.core.management import call_command
+ from django.urls import reverse
+ 
+ from news.models import Edicao
+-from news.services.montagem import montar_edicao
+ from news.services.pdf_generator import gerar_pdf_da_edicao, renderizar_html
+ 
+-from .base import DIA_FIXTURES, FIXTURES, ParaipythonTestCase
++from .base import DIA_FIXTURES, FIXTURES, ParaipythonTestCase, montar
+ 
+ try:
+     import weasyprint  # noqa: F401
+@@ -23,7 +22,7 @@ except (ImportError, OSError):  # OSError: faltam libs nativas (pango) no sistem
+ class TemplatePdfTest(ParaipythonTestCase):
+     def test_html_tem_manchete_referencias_e_expediente(self):
+         self.carregar_feeds()
+-        html = renderizar_html(montar_edicao(DIA_FIXTURES))
++        html = renderizar_html(montar())
+         self.assertIn("Mulher mata ex", html)
+         self.assertNotIn("data:image/svg+xml", html)  # sem QR codes
+         self.assertIn("Referências", html)
+@@ -34,27 +33,43 @@ class TemplatePdfTest(ParaipythonTestCase):
+         self.assertIn("Expediente", html)
+         self.assertIn("domingo, 15 de novembro de 2026", html.lower())
+ 
++    def test_html_tem_secoes_sumario_e_cabecalho_noturno(self):
++        self.carregar_feeds()
++        html = renderizar_html(montar())
++        self.assertIn('class="sumario"', html)
++        self.assertIn('href="#secao-policia"', html)
++        self.assertIn('id="secao-educacao"', html)
++        self.assertIn("Edição Noturna", html)
++        self.assertIn("img/xicara-noite.svg", html)
++
++    def test_cabecalho_da_manha(self):
++        self.carregar_feeds()
++        html = renderizar_html(montar(turno="manha", hora=6))
++        self.assertIn("Edição da Manhã", html)
++        self.assertIn("img/xicara.svg", html)
++        self.assertIn("Edição forte", html)
++
+ 
+ @unittest.skipUnless(TEM_WEASYPRINT, "WeasyPrint indisponível neste ambiente")
+ class GerarPdfTest(ParaipythonTestCase):
+     def test_gera_pdf_e_capa(self):
+         self.carregar_feeds()
+-        edicao = gerar_pdf_da_edicao(montar_edicao(DIA_FIXTURES))
++        edicao = gerar_pdf_da_edicao(montar())
+         with edicao.arquivo_pdf.open("rb") as f:
+             self.assertEqual(f.read(4), b"%PDF")
+-        self.assertTrue(edicao.arquivo_pdf.name.endswith("expresso-pb-2026-11-15.pdf"))
++        self.assertTrue(edicao.arquivo_pdf.name.endswith("expresso-pb-2026-11-15-noite.pdf"))
+         self.assertTrue(edicao.capa)
+ 
+     def test_comando_completo_com_feeds_locais(self):
+         saida = StringIO()
+         call_command(
+-            "fetch_daily_news", "--data", DIA_FIXTURES.isoformat(),
++            "fetch_daily_news", "--data", DIA_FIXTURES.isoformat(), "--turno", "noite",
+             "--feed-local", f"g1 PB={FIXTURES / 'g1_pb.xml'}",
+             "--feed-local", f"Jornal da Paraíba={FIXTURES / 'jornal_da_paraiba.xml'}",
+             stdout=saida,
+         )
+         self.assertIn("PDF salvo", saida.getvalue())
+-        self.assertTrue(Edicao.objects.get(data_edicao=DIA_FIXTURES).arquivo_pdf)
++        self.assertTrue(Edicao.objects.get(data_edicao=DIA_FIXTURES, turno="noite").arquivo_pdf)
+ 
+ 
+ class ViewsTest(ParaipythonTestCase):
+@@ -65,7 +80,7 @@ class ViewsTest(ParaipythonTestCase):
+ 
+     def test_home_com_edicao_de_hoje(self):
+         self.carregar_feeds()
+-        edicao = montar_edicao(DIA_FIXTURES)
++        edicao = montar(turno="manha", hora=6)
+         edicao.arquivo_pdf.save("teste.pdf", ContentFile(b"%PDF-1.7"), save=True)
+         with mock.patch("news.views.public.timezone.localdate", return_value=DIA_FIXTURES):
+             resp = self.client.get(reverse("news:home"))
+@@ -75,16 +90,50 @@ class ViewsTest(ParaipythonTestCase):
+ 
+     def test_home_mostra_ultima_edicao_quando_hoje_nao_saiu(self):
+         self.carregar_feeds()
+-        edicao = montar_edicao(DIA_FIXTURES)
++        edicao = montar()
+         edicao.arquivo_pdf.name = "edicoes_pdf/qualquer.pdf"
+         edicao.save()
+         with mock.patch("news.views.public.timezone.localdate", return_value=date(2026, 11, 20)):
+             resp = self.client.get(reverse("news:home"))
+-        self.assertContains(resp, "Baixar Última Edição Disponível (15/11/2026)")
++        self.assertContains(resp, "Baixar Última Edição Disponível (Edição Noturna, 15/11/2026)")
+ 
+     def test_pdf_inexistente_da_404(self):
++        self.assertEqual(self.client.get("/edicao/2020-01-01/manha/pdf/").status_code, 404)
++        self.assertEqual(self.client.get("/edicao/nao-e-data/manha/pdf/").status_code, 404)
+         self.assertEqual(self.client.get("/edicao/2020-01-01/pdf/").status_code, 404)
+-        self.assertEqual(self.client.get("/edicao/nao-e-data/pdf/").status_code, 404)
++
++    def test_turno_invalido_da_404(self):
++        self.carregar_feeds()
++        montar()
++        self.assertEqual(self.client.get("/edicao/2026-11-15/tarde/pdf/").status_code, 404)
++
++    def test_url_antiga_redireciona_para_a_edicao_mais_recente_do_dia(self):
++        self.carregar_feeds()
++        montar(turno="manha", hora=6)
++        montar(turno="noite", hora=19)
++        resp = self.client.get("/edicao/2026-11-15/download/")
++        self.assertRedirects(resp, "/edicao/2026-11-15/noite/download/", fetch_redirect_response=False)
++
++    def test_home_noturna_oferece_a_da_manha(self):
++        self.carregar_feeds()
++        for turno, hora in (("manha", 6), ("noite", 19)):
++            edicao = montar(turno=turno, hora=hora)
++            edicao.arquivo_pdf.save(f"{turno}.pdf", ContentFile(b"%PDF-1.7"), save=True)
++        with mock.patch("news.views.public.timezone.localdate", return_value=DIA_FIXTURES):
++            resp = self.client.get(reverse("news:home"))
++        self.assertContains(resp, "A Edição Noturna Chegou")
++        self.assertContains(resp, "Perdeu a Edição da Manhã?")
++
++    def test_acervo_agrupa_por_dia(self):
++        self.carregar_feeds()
++        for turno, hora in (("manha", 6), ("noite", 19)):
++            edicao = montar(turno=turno, hora=hora)
++            edicao.arquivo_pdf.save(f"{turno}.pdf", ContentFile(b"%PDF-1.7"), save=True)
++        resp = self.client.get(reverse("news:acervo"))
++        self.assertContains(resp, "2 edições")
++        self.assertContains(resp, "Domingo, 15 de")
++        html = resp.content.decode()
++        self.assertLess(html.index("Edição da Manhã"), html.index("Edição Noturna"))
+ 
+     def test_acervo_e_sobre(self):
+         self.assertContains(self.client.get(reverse("news:acervo")), "acervo ainda está vazio")
+diff --git a/src/news/tests/test_temas.py b/src/news/tests/test_temas.py
+new file mode 100644
+index 0000000..4cc5ab2
+--- /dev/null
++++ b/src/news/tests/test_temas.py
+@@ -0,0 +1,41 @@
++from django.test import SimpleTestCase
++
++from news.services.temas import classificar
++from news.temas import Tema
++
++
++class ClassificarTest(SimpleTestCase):
++    """Títulos reais do feed do G1 PB e do Jornal da Paraíba."""
++
++    def assertTema(self, titulo, tema, resumo="", categoria="", link=""):
++        self.assertEqual(classificar(titulo, resumo, categoria, link), tema, titulo)
++
++    def test_policia(self):
++        self.assertTema("Homem atira em irmão após desentendimento familiar, em João Pessoa", Tema.POLICIA)
++        self.assertTema("Casa lotérica dentro de supermercado é alvo de assalto em Campina Grande", Tema.POLICIA)
++
++    def test_educacao(self):
++        self.assertTema("Servidor público aposentado faz Enem 2026 para tentar nova carreira", Tema.EDUCACAO)
++
++    def test_clima(self):
++        self.assertTema("Inmet emite alerta de chuvas intensas para mais de 30 cidades da PB", Tema.CLIMA)
++
++    def test_economia(self):
++        self.assertTema("PIB da Paraíba foi o que mais cresceu entre todos os estados, aponta IBGE", Tema.ECONOMIA)
++        self.assertTema("Concurso da prefeitura de Natuba tem mais de 140 vagas", Tema.ECONOMIA)
++
++    def test_cultura(self):
++        self.assertTema("Fábio Júnior, José Augusto e mais: veja a agenda cultural do fim de semana", Tema.CULTURA)
++
++    def test_politica(self):
++        self.assertTema("ALPB derruba decisão sobre tornozeleira do deputado", Tema.POLITICA)
++
++    def test_categoria_do_portal_ajuda(self):
++        self.assertTema("Belo vence o clássico no Almeidão", Tema.ESPORTES, categoria="Esportes")
++
++    def test_sem_palavra_chave_vai_para_cidade(self):
++        self.assertTema("Rompimento de tubulação provoca falta de água em bairro de João Pessoa", Tema.CIDADE)
++
++    def test_palavra_inteira_nao_casa_pedaco(self):
++        # "mar" não pode casar com "marido"
++        self.assertNotEqual(classificar("Influenciador e o marido são transferidos"), Tema.CLIMA)
+diff --git a/src/news/urls.py b/src/news/urls.py
+index a86a57d..693bf77 100644
+--- a/src/news/urls.py
++++ b/src/news/urls.py
+@@ -7,7 +7,11 @@ app_name = "news"
+ urlpatterns = [
+     path("", views.HomeView.as_view(), name="home"),
+     path("acervo/", views.AcervoView.as_view(), name="acervo"),
+-    path("edicao/<str:data>/pdf/", views.edicao_pdf, name="edicao_pdf"),
+-    path("edicao/<str:data>/download/", views.edicao_download, name="edicao_download"),
+-    path("edicao/<str:data>/capa.png", views.edicao_capa, name="edicao_capa"),
++    path("edicao/<str:data>/<str:turno>/pdf/", views.edicao_pdf, name="edicao_pdf"),
++    path("edicao/<str:data>/<str:turno>/download/", views.edicao_download, name="edicao_download"),
++    path("edicao/<str:data>/<str:turno>/capa.png", views.edicao_capa, name="edicao_capa"),
++    # URLs antigas (antes das edições da manhã e da noite)
++    path("edicao/<str:data>/pdf/", views.edicao_sem_turno, {"destino": "pdf"}),
++    path("edicao/<str:data>/download/", views.edicao_sem_turno, {"destino": "download"}),
++    path("edicao/<str:data>/capa.png", views.edicao_sem_turno, {"destino": "capa"}),
+ ]
+diff --git a/src/news/views/__init__.py b/src/news/views/__init__.py
+index fdd52f3..69003b4 100644
+--- a/src/news/views/__init__.py
++++ b/src/news/views/__init__.py
+@@ -1,4 +1,4 @@
+-from .pdf_view import edicao_capa, edicao_download, edicao_pdf
++from .pdf_view import edicao_capa, edicao_download, edicao_pdf, edicao_sem_turno
+ from .public import AcervoView, HomeView
+ 
+-__all__ = ["AcervoView", "HomeView", "edicao_capa", "edicao_download", "edicao_pdf"]
++__all__ = ["AcervoView", "HomeView", "edicao_capa", "edicao_download", "edicao_pdf", "edicao_sem_turno"]
+diff --git a/src/news/views/pdf_view.py b/src/news/views/pdf_view.py
+index 7ad44f5..a2e48e7 100644
+--- a/src/news/views/pdf_view.py
++++ b/src/news/views/pdf_view.py
+@@ -2,25 +2,33 @@
+ 
+ No cPanel (Passenger), a pasta media/ não é servida automaticamente quando DEBUG=False.
+ Servir por estas views resolve sem mexer em .htaccess e ainda dá URLs bonitas:
+-    /edicao/2026-11-15/pdf/       → abre no navegador
+-    /edicao/2026-11-15/download/  → baixa o arquivo
+-    /edicao/2026-11-15/capa.png   → miniatura da primeira página
++    /edicao/2026-11-15/manha/pdf/       → abre no navegador
++    /edicao/2026-11-15/noite/download/  → baixa o arquivo
++    /edicao/2026-11-15/manha/capa.png   → miniatura da primeira página
++
++As URLs antigas, sem o turno (/edicao/2026-11-15/pdf/), redirecionam para a edição
++mais recente daquele dia, para não quebrar links já compartilhados.
+ """
+ from datetime import date
+ 
+ from django.http import FileResponse, Http404
+-from django.shortcuts import get_object_or_404
++from django.shortcuts import get_object_or_404, redirect
+ from django.views.decorators.http import require_GET
+ 
+ from news.models import Edicao
+ 
+ 
+-def _edicao(data):
++def _dia(data):
+     try:
+-        dia = date.fromisoformat(data)
++        return date.fromisoformat(data)
+     except ValueError:
+         raise Http404("Data inválida.")
+-    return get_object_or_404(Edicao, data_edicao=dia)
++
++
++def _edicao(data, turno):
++    if turno not in Edicao.Turno.values:
++        raise Http404("Turno inválido.")
++    return get_object_or_404(Edicao, data_edicao=_dia(data), turno=turno)
+ 
+ 
+ def _arquivo(campo, **kwargs):
+@@ -33,20 +41,29 @@ def _arquivo(campo, **kwargs):
+ 
+ 
+ @require_GET
+-def edicao_pdf(request, data):
+-    edicao = _edicao(data)
++def edicao_pdf(request, data, turno):
++    edicao = _edicao(data, turno)
+     return _arquivo(edicao.arquivo_pdf, content_type="application/pdf",
+-                    filename=f"expresso-pb-{edicao.data_edicao}.pdf")
++                    filename=f"expresso-pb-{edicao.data_edicao}-{edicao.turno}.pdf")
+ 
+ 
+ @require_GET
+-def edicao_download(request, data):
+-    edicao = _edicao(data)
++def edicao_download(request, data, turno):
++    edicao = _edicao(data, turno)
+     return _arquivo(edicao.arquivo_pdf, as_attachment=True, content_type="application/pdf",
+-                    filename=f"expresso-pb-{edicao.data_edicao}.pdf")
++                    filename=f"expresso-pb-{edicao.data_edicao}-{edicao.turno}.pdf")
+ 
+ 
+ @require_GET
+-def edicao_capa(request, data):
+-    edicao = _edicao(data)
++def edicao_capa(request, data, turno):
++    edicao = _edicao(data, turno)
+     return _arquivo(edicao.capa, content_type="image/png")
++
++
++@require_GET
++def edicao_sem_turno(request, data, destino):
++    """Compatibilidade com as URLs de antes das duas edições por dia."""
++    edicao = Edicao.objects.filter(data_edicao=_dia(data)).first()  # a mais recente do dia
++    if edicao is None:
++        raise Http404("Nenhuma edição nesta data.")
++    return redirect(f"news:edicao_{destino}", data=data, turno=edicao.turno)
+diff --git a/src/news/views/public.py b/src/news/views/public.py
+index 08c7d3a..0e92583 100644
+--- a/src/news/views/public.py
++++ b/src/news/views/public.py
+@@ -1,3 +1,4 @@
++from django.conf import settings
+ from django.utils import timezone
+ from django.views.generic import ListView, TemplateView
+ 
+@@ -8,19 +9,35 @@ def edicoes_publicadas():
+     return Edicao.objects.exclude(arquivo_pdf="")
+ 
+ 
++def proxima_edicao(agora=None):
++    """Nome e horário da próxima edição, para a mensagem de "ainda tá passando"."""
++    agora = timezone.localtime(agora or timezone.now())
++    cfg = settings.PARAIPYTHON
++    manha, noite = cfg["HORARIO_MANHA"], cfg["HORARIO_NOITE"]
++    hora_atual = agora.strftime("%H:%M")
++    if manha <= hora_atual < noite:
++        return {"nome": Edicao.Turno.NOITE.label, "hora": noite}
++    return {"nome": Edicao.Turno.MANHA.label, "hora": manha}
++
++
+ class HomeView(TemplateView):
+     template_name = "news/index.html"
+ 
+     def get_context_data(self, **kwargs):
+         ctx = super().get_context_data(**kwargs)
+         hoje = timezone.localdate()
+-        edicao_hoje = edicoes_publicadas().filter(data_edicao=hoje).first()
+-        destaque = edicao_hoje or edicoes_publicadas().first()
++        atual = edicoes_publicadas().first()  # a mais recente (data e turno)
++        eh_de_hoje = bool(atual and atual.data_edicao == hoje)
++        outra_de_hoje = None
++        if eh_de_hoje and atual.eh_noite:
++            outra_de_hoje = edicoes_publicadas().filter(data_edicao=hoje, turno=Edicao.Turno.MANHA).first()
+         ctx.update(
+             {
+-                "edicao_hoje": edicao_hoje,
+-                "ultima_edicao": None if edicao_hoje else destaque,
+-                "manchetes": destaque.noticias_ordenadas()[:8] if destaque else [],
++                "edicao_hoje": atual if eh_de_hoje else None,
++                "ultima_edicao": None if eh_de_hoje else atual,
++                "outra_de_hoje": outra_de_hoje,
++                "proxima": proxima_edicao(),
++                "manchetes": atual.noticias_ordenadas()[:8] if atual else [],
+                 "data_atual": timezone.localtime(),
+             }
+         )
+@@ -30,10 +47,11 @@ class HomeView(TemplateView):
+ class AcervoView(ListView):
+     template_name = "news/acervo.html"
+     context_object_name = "edicoes"
+-    paginate_by = 24
++    paginate_by = 24  # 12 dias de edições
+ 
+     def get_queryset(self):
+-        return edicoes_publicadas().order_by("-data_edicao")
++        # Dias do mais recente para o mais antigo; dentro do dia, manhã antes da noite.
++        return edicoes_publicadas().order_by("-data_edicao", "turno")
+ 
+     def get_context_data(self, **kwargs):
+         ctx = super().get_context_data(**kwargs)
+diff --git a/src/static/css/style.css b/src/static/css/style.css
+index a4c1131..f5751c1 100644
+--- a/src/static/css/style.css
++++ b/src/static/css/style.css
+@@ -346,6 +346,36 @@ body {
+ 
+ .menu .menu-apoie { color: var(--accent-red); }
+ 
++/* Selo do turno (☀ manhã / ☾ noite) */
++.selo-turno {
++  display: inline-block;
++  align-self: flex-start;
++  font-family: var(--font-heading);
++  font-size: 0.75rem;
++  font-weight: bold;
++  text-transform: uppercase;
++  letter-spacing: 1.5px;
++  padding: 3px 10px;
++  border: 1px solid var(--ink-black);
++  background: var(--paper-bg);
++  color: var(--ink-black);
++  margin-bottom: 10px;
++}
++
++.selo-turno.noite { background: var(--ink-black); color: var(--paper-bg); }
++
++.acervo-dia { margin-bottom: 30px; }
++
++.acervo-dia h3 {
++  font-family: var(--font-heading);
++  font-size: 1.1rem;
++  border-bottom: 1px solid var(--border-line);
++  padding-bottom: 6px;
++  margin: 0 0 14px;
++}
++
++.acervo-info .selo-turno { margin-bottom: 4px; text-transform: uppercase; white-space: nowrap; letter-spacing: 0.5px; font-size: 0.7rem; }
++
+ /* ==========================================
+    10. APOIE (PIX E LINK DE APOIO)
+    ================================---------- */
+diff --git a/src/static/img/grao.svg b/src/static/img/grao.svg
+new file mode 100644
+index 0000000..f5c0619
+--- /dev/null
++++ b/src/static/img/grao.svg
+@@ -0,0 +1,7 @@
++<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 28" width="40" height="28">
++  <!-- Grão de café: vinheta das seções do Expresso PB -->
++  <g transform="rotate(-28 20 14)">
++    <ellipse cx="20" cy="14" rx="15" ry="10" fill="#4a2c17" stroke="#1a1815" stroke-width="1.6"/>
++    <path d="M6 15 C12 9 17 19 22 13 S30 10 34 13" fill="none" stroke="#efe4c8" stroke-width="2" stroke-linecap="round"/>
++  </g>
++</svg>
+diff --git a/src/static/img/xicara-noite.svg b/src/static/img/xicara-noite.svg
+new file mode 100644
+index 0000000..49b0614
+--- /dev/null
++++ b/src/static/img/xicara-noite.svg
+@@ -0,0 +1,28 @@
++<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 112" width="120" height="112">
++  <!-- Xícara da Edição Noturna no estilo gravura de jornal antigo (desenho original do Expresso PB) -->
++  <!-- noite: lua minguante e estrelas no lugar do vapor -->
++  <path d="M66 6 A15 15 0 1 0 74 34 A12 12 0 1 1 66 6 Z" fill="#efe4c8" stroke="#1a1815" stroke-width="2.2" stroke-linejoin="round"/>
++  <g fill="#1a1815">
++    <path d="M38 12 l1.6 4 4 1.6 -4 1.6 -1.6 4 -1.6 -4 -4 -1.6 4 -1.6 z"/>
++    <path d="M86 18 l1.2 3 3 1.2 -3 1.2 -1.2 3 -1.2 -3 -3 -1.2 3 -1.2 z"/>
++    <circle cx="48" cy="32" r="1.4"/><circle cx="90" cy="6" r="1.2"/><circle cx="28" cy="26" r="1"/>
++  </g>
++  <!-- pires -->
++  <ellipse cx="58" cy="94" rx="46" ry="9" fill="#efe4c8" stroke="#1a1815" stroke-width="2.6"/>
++  <ellipse cx="58" cy="92" rx="26" ry="4" fill="none" stroke="#1a1815" stroke-width="1.2"/>
++  <!-- alça -->
++  <path d="M85 56 c15 -3 17 15 -1 19" fill="none" stroke="#1a1815" stroke-width="3"/>
++  <!-- corpo -->
++  <path d="M28 50 C28 72 38 89 58 89 C78 89 88 72 88 50 Z" fill="#efe4c8" stroke="#1a1815" stroke-width="2.8" stroke-linejoin="round"/>
++  <!-- hachuras (sombra da gravura) -->
++  <g stroke="#1a1815" stroke-width="1.1" stroke-linecap="round">
++    <path d="M80 56 L77 76"/><path d="M76 57 L73 80"/><path d="M72 58 L70 82"/>
++    <path d="M84 55 L82 68"/><path d="M36 60 L38 72"/>
++  </g>
++  <!-- faixa decorativa -->
++  <path d="M31 62 C40 66 76 66 85 62" fill="none" stroke="#7a1010" stroke-width="2"/>
++  <!-- boca e café com crema -->
++  <ellipse cx="58" cy="50" rx="30" ry="6" fill="#efe4c8" stroke="#1a1815" stroke-width="2.6"/>
++  <ellipse cx="58" cy="50.5" rx="25" ry="4" fill="#5b3418"/>
++  <path d="M42 50 c6 -2 12 1 18 -1 c5 -1 9 1 13 0" fill="none" stroke="#c08a52" stroke-width="1.4" stroke-linecap="round"/>
++</svg>
+diff --git a/src/templates/news/acervo.html b/src/templates/news/acervo.html
+index ab45474..32547eb 100644
+--- a/src/templates/news/acervo.html
++++ b/src/templates/news/acervo.html
+@@ -5,28 +5,34 @@
+ {% block content %}
+   <div class="edition-bar">
+     <span>Acervo: as xícaras anteriores</span>
+-    <span>{{ paginator.count|default:0 }} edição{{ paginator.count|pluralize:"ões" }}</span>
++    <span>{{ paginator.count|default:0 }} {% if paginator.count == 1 %}edição{% else %}edições{% endif %}</span>
+   </div>
+ 
+   {% if edicoes %}
+-    <section class="acervo-grid">
+-      {% for edicao in edicoes %}
+-        <article class="acervo-item">
+-          <a href="{{ edicao.get_pdf_url }}" target="_blank" class="acervo-capa">
+-            {% if edicao.capa %}
+-              <img src="{{ edicao.get_capa_url }}" alt="Capa da edição Nº {{ edicao.numero_edicao }}" loading="lazy">
+-            {% else %}
+-              <span>Nº {{ edicao.numero_edicao }}</span>
+-            {% endif %}
+-          </a>
+-          <div class="acervo-info">
+-            <strong>Nº {{ edicao.numero_edicao }}</strong>
+-            <span>{{ edicao.data_edicao|date:"l, d/m/Y" }}</span>
+-            <a href="{{ edicao.get_download_url }}">📥 Baixar PDF</a>
+-          </div>
+-        </article>
+-      {% endfor %}
+-    </section>
++    {% regroup edicoes by data_edicao as dias %}
++    {% for dia in dias %}
++      <section class="acervo-dia">
++        <h3>{{ dia.grouper|date:"l, j \d\e F \d\e Y"|capfirst }}</h3>
++        <div class="acervo-grid">
++          {% for edicao in dia.list %}
++            <article class="acervo-item">
++              <a href="{{ edicao.get_pdf_url }}" target="_blank" class="acervo-capa">
++                {% if edicao.capa %}
++                  <img src="{{ edicao.get_capa_url }}" alt="Capa da edição Nº {{ edicao.numero_edicao }}" loading="lazy">
++                {% else %}
++                  <span>Nº {{ edicao.numero_edicao }}</span>
++                {% endif %}
++              </a>
++              <div class="acervo-info">
++                <span class="selo-turno {{ edicao.turno }}">{% if edicao.eh_noite %}☾{% else %}☀{% endif %} {{ edicao.get_turno_display }}</span>
++                <strong>Nº {{ edicao.numero_edicao }}</strong>
++                <a href="{{ edicao.get_download_url }}">📥 Baixar PDF</a>
++              </div>
++            </article>
++          {% endfor %}
++        </div>
++      </section>
++    {% endfor %}
+ 
+     {% if is_paginated %}
+       <nav class="paginacao">
+diff --git a/src/templates/news/index.html b/src/templates/news/index.html
+index b8e67ae..432f0fc 100644
+--- a/src/templates/news/index.html
++++ b/src/templates/news/index.html
+@@ -1,30 +1,45 @@
+ {% extends 'base.html' %}
+ 
+-{% block title %}Expresso PB — O jornal matinal parahybano, tirado na hora{% endblock %}
++{% block title %}Expresso PB — O jornal parahybano tirado na hora, de manhã e à noite{% endblock %}
+ 
+ {% block content %}
+ {% with destaque=edicao_hoje|default:ultima_edicao %}
+ 
+   <div class="edition-bar">
+     <span>Data: {{ destaque.data_edicao|date:"d/m/Y"|default:"---" }}</span>
+-    <span>Edição Nº: {{ destaque.numero_edicao|default:"---" }}</span>
++    <span>Edição Nº {{ destaque.numero_edicao|default:"---" }}{% if destaque %} · {{ destaque.get_turno_display }}{% endif %}</span>
+     <span>Preço: um cafezinho (via Python)</span>
+   </div>
+ 
+   {% if edicao_hoje %}
+     <section class="hero-edition">
+       <div class="hero-info">
+-        <h2>O Expresso de Hoje Saiu Quentinho!</h2>
+-        <p>
+-          O robô moeu os portais de João Pessoa às 06:00 e passou as principais notícias num jornal
+-          de 3 colunas, no estilo retrô dos impressos de época. Curto, forte e pronto pra ler com o café.
+-        </p>
++        <span class="selo-turno {{ edicao_hoje.turno }}">{% if edicao_hoje.eh_noite %}☾{% else %}☀{% endif %} {{ edicao_hoje.get_turno_display }}</span>
++        {% if edicao_hoje.eh_noite %}
++          <h2>A Edição Noturna Chegou!</h2>
++          <p>
++            O resumo do dia em João Pessoa, separado por temas e diagramado no estilo dos jornais
++            de época. Pra ler com calma ao voltar pra casa.
++          </p>
++        {% else %}
++          <h2>O Expresso de Hoje Saiu Quentinho!</h2>
++          <p>
++            O robô moeu os portais de João Pessoa durante a madrugada e passou as principais notícias,
++            separadas por temas, num jornal no estilo retrô dos impressos de época. Curto, forte e
++            pronto pra ler com o café.
++          </p>
++        {% endif %}
+         <a href="{{ edicao_hoje.get_download_url }}" class="btn-download-hero">
+           <span>☕ Baixar o Expresso em PDF</span>
+         </a>
+         <a href="{{ edicao_hoje.get_pdf_url }}" target="_blank" class="btn-secondary">
+           🔍 Visualizar no navegador
+         </a>
++        {% if outra_de_hoje %}
++          <a href="{{ outra_de_hoje.get_download_url }}" class="btn-secondary">
++            ☀ Perdeu a Edição da Manhã? Baixe aqui
++          </a>
++        {% endif %}
+       </div>
+       <div class="hero-preview">
+         {% if edicao_hoje.capa %}
+@@ -38,12 +53,12 @@
+     </section>
+   {% else %}
+     <section class="empty-state">
+-      <h3>☕ O café das 06:00 ainda tá passando!</h3>
+-      <p>O robô ainda está moendo os portais de João Pessoa. Volte em instantes ou fique com a edição anterior, que ainda tá morna.</p>
++      <h3>☕ O café das {{ proxima.hora }} ainda tá passando!</h3>
++      <p>A próxima é a {{ proxima.nome }}, às {{ proxima.hora }}. Enquanto isso, fique com a edição anterior, que ainda tá morna.</p>
+       {% if ultima_edicao %}
+         <div style="margin-top: 20px;">
+           <a href="{{ ultima_edicao.get_download_url }}" class="btn-download-hero" style="display: inline-flex; width: auto;">
+-            ☕ Baixar Última Edição Disponível ({{ ultima_edicao.data_edicao|date:"d/m/Y" }})
++            ☕ Baixar Última Edição Disponível ({{ ultima_edicao.get_turno_display }}, {{ ultima_edicao.data_edicao|date:"d/m/Y" }})
+           </a>
+         </div>
+       {% endif %}
+diff --git a/src/templates/pdf/jornal_template.html b/src/templates/pdf/jornal_template.html
+index eac2b8f..6a3a9d7 100644
+--- a/src/templates/pdf/jornal_template.html
++++ b/src/templates/pdf/jornal_template.html
+@@ -11,7 +11,7 @@
+     margin: 13mm 12mm 16mm 12mm;
+     background: #f4ecd8;
+     @bottom-left {
+-      content: "Expresso PB · Edição Nº {{ edicao.numero_edicao }} · tirada na hora";
++      content: "Expresso PB · Nº {{ edicao.numero_edicao }} · {{ turno_nome }}";
+       font: italic 7.5pt "Old Standard TT", serif; color: #5a4f43;
+     }
+     @bottom-right {
+@@ -62,10 +62,42 @@
+                      color: var(--vermelho); }
+   .manchete .assinatura { text-align: right; margin-top: 5pt; font-size: 7.6pt; }
+ 
+-  /* ---------- Demais notícias em 3 colunas ---------- */
++  /* ---------- Sumário ---------- */
++  .sumario { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline;
++             gap: 2pt 0; margin: -3pt 0 10pt; padding: 4pt 6pt; border-bottom: 0.6pt solid var(--fio);
++             font-size: 8pt; }
++  .sumario .rotulo { font-family: "UnifrakturMaguntia", serif; font-size: 11pt; margin-right: 6pt; }
++  .sumario a { color: var(--tinta); text-decoration: none; padding: 0 6pt;
++               border-left: 0.5pt solid #b9ab8c; }
++  .sumario a:first-of-type { border-left: none; }
++  .sumario a::after { content: " · p. " target-counter(attr(href), page);
++                      font-style: italic; color: var(--vermelho); }
++
++  /* ---------- Seções (temas) ---------- */
++  .secao { margin-bottom: 4pt; }
++  .faixa { display: flex; align-items: center; justify-content: center; gap: 8pt;
++           border-top: 2.4pt double var(--fio); border-bottom: 0.6pt solid var(--fio);
++           padding: 3pt 0 2pt; margin: 6pt 0 8pt; break-after: avoid; }
++  .faixa h2 { font-family: "UnifrakturMaguntia", serif; font-weight: 400; font-size: 21pt;
++              line-height: 1; margin: 0; letter-spacing: 0.5pt; }
++  .faixa img { width: 8mm; }
++  .faixa .qtd { font-size: 6.8pt; font-style: italic; color: #4a4036; }
++
+   .colunas { columns: 3; column-gap: 12pt; column-rule: 0.5pt solid #b9ab8c; }
++  .colunas.c2 { columns: 2; column-gap: 14pt; }
++  .colunas.c1 { columns: 1; }
++  .colunas.c1 .materia .texto { columns: 2; column-gap: 14pt; column-rule: 0.5pt solid #b9ab8c; }
++
++  /* Abre de seção: a notícia mais relevante do tema ganha destaque */
++  .materia.abre h2 { font-weight: 900; font-size: 16pt; line-height: 1.08; }
++  .materia.abre .texto { font-size: 10.2pt; line-height: 1.36; }
++  /* Capitular elevada num <span> de verdade: o ::first-letter do WeasyPrint dentro de
++     colunas pode travar (float não é suportado e às vezes entra em recursão). */
++  .capitular { font-family: "Playfair Display", serif; font-weight: 900; font-size: 19pt;
++               line-height: 1; color: var(--vermelho); }
+   .materia { break-inside: avoid; padding-bottom: 7pt; margin-bottom: 7pt;
+              border-bottom: 0.5pt solid #b9ab8c; }
++  .materia:last-child { border-bottom: none; }
+   .chapeu { font-size: 6.8pt; text-transform: uppercase; letter-spacing: 1.4pt;
+             color: var(--vermelho); font-weight: 700; }
+   .materia h2 { font-family: "Playfair Display", serif; font-weight: 700; font-size: 12.5pt;
+@@ -89,7 +121,7 @@
+   .referencias .url { font-size: 6.4pt; color: #4a4036; word-break: break-all; hyphens: none; }
+ 
+   /* ---------- Expediente ---------- */
+-  .expediente { break-inside: avoid; margin-top: 4pt; border: 1.2pt double var(--fio);
++  .expediente { break-inside: avoid; margin-top: 8pt; border: 1.2pt double var(--fio);
+                 padding: 6pt 7pt; font-size: 7.4pt; line-height: 1.35; text-align: justify; }
+   .expediente h3 { font-family: "UnifrakturMaguntia", serif; font-weight: 400; font-size: 13pt;
+                    text-align: center; margin: 0 0 3pt; }
+@@ -106,18 +138,28 @@
+   <img class="mancha" src="img/mancha-cafe.svg" alt="">
+   <div class="cabecalho">
+     <div class="orelha">
+-      <img src="img/xicara.svg" alt="">
+-      Tirado na hora
++      {% if noite %}
++        <img src="img/xicara-noite.svg" alt="">
++        Passado às {{ hora_turno }}
++      {% else %}
++        <img src="img/xicara.svg" alt="">
++        Tirado na hora
++      {% endif %}
+     </div>
+     <h1 class="titulo-jornal">Expresso <span class="pb">PB</span></h1>
+     <div class="orelha caixa">
+-      <strong>Edição forte</strong>
+-      Curto · sem açúcar<br>moído às 06h00<br>em João Pessoa
++      {% if noite %}
++        <strong>Edição Noturna</strong>
++        O dia em resumo<br>pra ler em casa<br>{{ hora_turno }} · João Pessoa
++      {% else %}
++        <strong>Edição forte</strong>
++        Curto · sem açúcar<br>moído às {{ hora_turno }}<br>em João Pessoa
++      {% endif %}
+     </div>
+   </div>
+   <p class="lema">“As notícias da capital paraibana, curtas e fortes como um expresso.”</p>
+   <div class="barra-edicao">
+-    <span>Nº {{ edicao.numero_edicao }}</span>
++    <span>Nº {{ edicao.numero_edicao }} · {{ turno_nome }}</span>
+     <span class="data">{{ edicao.data_edicao|date:"l, j \d\e F \d\e Y" }}</span>
+     <span>Preço: um cafezinho</span>
+   </div>
+@@ -125,7 +167,7 @@
+ 
+ {% if manchete %}
+ <section class="manchete">
+-  {% if manchete.noticia.categoria %}<div class="chapeu">{{ manchete.noticia.categoria }}</div>{% endif %}
++  <div class="chapeu">{{ manchete.tema_nome }}</div>
+   <h1>{{ manchete.noticia.titulo }}</h1>
+   <div class="texto"><p>{{ manchete.noticia.resumo }}</p></div>
+   <div class="assinatura">
+@@ -137,30 +179,46 @@
+ </section>
+ {% endif %}
+ 
+-<section class="colunas">
+-  {% for item in demais %}
+-  <article class="materia">
+-    {% if item.noticia.categoria %}<div class="chapeu">{{ item.noticia.categoria }}</div>{% endif %}
+-    <h2>{{ item.noticia.titulo }}</h2>
+-    <div class="texto"><p>{{ item.noticia.resumo }}</p></div>
+-    <div class="assinatura">
+-      <span>Na íntegra em <strong>{{ item.noticia.fonte.nome }}</strong>
+-        {% if item.outras_fontes %}· também em {{ item.outras_fontes }}{% endif %}
+-        · {{ item.noticia.publicado_em|date:"d/m H\hi" }}
+-        <span class="ref">[{{ item.ref }}]</span></span>
+-    </div>
+-  </article>
+-  {% endfor %}
+-
+-  <aside class="expediente">
+-    <h3>Expediente</h3>
+-    O Expresso PB é passado na hora por um robô em Python, com grãos dos portais
+-    {{ fontes|join:", " }}. Os textos aqui são resumos e chamadas; as matérias
+-    completas e seus direitos pertencem aos respectivos veículos. O número entre
+-    colchetes ao fim de cada notícia leva ao endereço da matéria original, na seção de Referências.
+-    Edição tirada em {{ gerado_em|date:"d/m/Y \à\s H\hi" }}. Sirva-se.
+-  </aside>
++{% if secoes %}
++<nav class="sumario">
++  <span class="rotulo">Nesta edição</span>
++  {% for secao in secoes %}<a href="#secao-{{ secao.slug }}">{{ secao.nome }}</a>{% endfor %}
++</nav>
++{% endif %}
++
++{% for secao in secoes %}
++<section class="secao" id="secao-{{ secao.slug }}">
++  <div class="faixa">
++    <img src="img/grao.svg" alt="">
++    <h2>{{ secao.nome }}</h2>
++    <img src="img/grao.svg" alt="" style="transform: scaleX(-1)">
++  </div>
++  <div class="colunas c{{ secao.colunas }}">
++    {% for item in secao.itens %}
++    <article class="materia{% if forloop.first %} abre{% endif %}">
++      <h2>{{ item.noticia.titulo }}</h2>
++      <div class="texto"><p>{% if forloop.first %}<span class="capitular">{{ item.noticia.resumo|slice:":1" }}</span>{{ item.noticia.resumo|slice:"1:" }}{% else %}{{ item.noticia.resumo }}{% endif %}</p></div>
++      <div class="assinatura">
++        <span>Na íntegra em <strong>{{ item.noticia.fonte.nome }}</strong>
++          {% if item.outras_fontes %}· também em {{ item.outras_fontes }}{% endif %}
++          · {{ item.noticia.publicado_em|date:"d/m H\hi" }}
++          <span class="ref">[{{ item.ref }}]</span></span>
++      </div>
++    </article>
++    {% endfor %}
++  </div>
+ </section>
++{% endfor %}
++
++<aside class="expediente">
++  <h3>Expediente</h3>
++  O Expresso PB é passado na hora por um robô em Python, com grãos dos portais
++  {{ fontes|join:", " }}, em duas edições: a da manhã, pra ler ao acordar, e a noturna, pra ler
++  ao voltar pra casa. Os textos aqui são resumos e chamadas; as matérias completas e seus
++  direitos pertencem aos respectivos veículos. O número entre colchetes ao fim de cada notícia
++  leva ao endereço da matéria original, na seção de Referências.
++  Edição tirada em {{ gerado_em|date:"d/m/Y \à\s H\hi" }}. Sirva-se.
++</aside>
+ 
+ <section class="referencias">
+   <h3>Referências</h3>
