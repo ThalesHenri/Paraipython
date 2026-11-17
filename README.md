@@ -39,6 +39,10 @@ Tudo isso rodando nas manhas no seu servidor cPanel, porque desenvolvedor experi
                                           xícara de expresso — com lua na noturna —, sumário com
                                           páginas, uma faixa por tema e Referências com o link de
                                           cada matéria) e salva em media/edicoes_pdf/.
+                                          Na versão digital tudo é clicável: o título abre a
+                                          matéria, o [n] pula pra referência (e volta), o
+                                          sumário leva à seção, e o painel lateral do leitor
+                                          de PDF lista manchete, temas e Referências.
 ```
 
 **Sobre direitos autorais:** o jornal mostra só o título, um resumo curto (a linha fina do G1 ou o primeiro parágrafo do Jornal da Paraíba) e um número `[n]` que aponta pra seção de **Referências** no fim da edição, onde ficam os endereços das matérias originais (e do outro portal, quando a pauta saiu nos dois). O texto completo fica nos portais, que é onde ele mora.

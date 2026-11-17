@@ -51,6 +51,39 @@ class TemplatePdfTest(ParaipythonTestCase):
 
 
 @unittest.skipUnless(TEM_WEASYPRINT, "WeasyPrint indisponível neste ambiente")
+def links_do_pdf(caminho):
+    """Lê as anotações de link do PDF: (URLs externas, páginas de destino internas, marcadores)."""
+    import ctypes
+
+    import pypdfium2 as pdfium
+    import pypdfium2.raw as raw
+
+    pdf = pdfium.PdfDocument(caminho)
+    externos, internos = set(), set()
+    for indice in range(len(pdf)):
+        pagina, posicao = pdf[indice], 0
+        while True:
+            link, pos = raw.FPDF_LINK(), ctypes.c_int(posicao)
+            if not raw.FPDFLink_Enumerate(pagina.raw, ctypes.byref(pos), ctypes.byref(link)):
+                break
+            posicao = pos.value
+            acao = raw.FPDFLink_GetAction(link)
+            destino = raw.FPDFLink_GetDest(pdf.raw, link)
+            if acao:
+                tamanho = raw.FPDFAction_GetURIPath(pdf.raw, acao, None, 0)
+                if tamanho:
+                    buffer = ctypes.create_string_buffer(tamanho)
+                    raw.FPDFAction_GetURIPath(pdf.raw, acao, buffer, tamanho)
+                    externos.add(buffer.value.decode())
+                    continue
+                destino = raw.FPDFAction_GetDest(pdf.raw, acao) or destino
+            if destino:
+                internos.add((indice + 1, raw.FPDFDest_GetDestPageIndex(pdf.raw, destino) + 1))
+    marcadores = [m.get_title() for m in pdf.get_toc()]
+    pdf.close()
+    return externos, internos, marcadores
+
+
 class GerarPdfTest(ParaipythonTestCase):
     def test_gera_pdf_e_capa(self):
         self.carregar_feeds()
@@ -59,6 +92,31 @@ class GerarPdfTest(ParaipythonTestCase):
             self.assertEqual(f.read(4), b"%PDF")
         self.assertTrue(edicao.arquivo_pdf.name.endswith("expresso-pb-2026-11-15-noite.pdf"))
         self.assertTrue(edicao.capa)
+
+    def test_links_clicaveis_e_marcadores(self):
+        self.carregar_feeds()
+        edicao = gerar_pdf_da_edicao(montar())
+        externos, internos, marcadores = links_do_pdf(edicao.arquivo_pdf.path)
+
+        # Todo link de matéria (e do outro portal, na pauta repetida) está clicável.
+        for rel in edicao.edicaonoticia_set.select_related("noticia"):
+            self.assertIn(rel.noticia.link, externos)
+            for outro in rel.outros_links:
+                self.assertIn(outro["link"], externos)
+
+        # Há links internos: [n] → Referências, Referências → notícia, sumário → seções.
+        self.assertTrue(internos)
+        ultima = max(destino for _, destino in internos)
+        self.assertTrue(any(origem == 1 and destino > 1 for origem, destino in internos))  # capa → adiante
+        self.assertIn((1, 1), internos)  # sumário → seção que começa na própria capa
+        self.assertTrue(any(origem == ultima and destino < ultima for origem, destino in internos))  # volta
+
+        # Painel lateral: manchete, temas e Referências — sem o título de cada notícia.
+        self.assertTrue(marcadores[0].startswith("Manchete: "))
+        self.assertEqual(marcadores[-1], "Referências")
+        self.assertIn("Polícia", marcadores)
+        segunda = edicao.edicaonoticia_set.get(posicao=1).noticia.titulo
+        self.assertNotIn(segunda, marcadores)
 
     def test_comando_completo_com_feeds_locais(self):
         saida = StringIO()

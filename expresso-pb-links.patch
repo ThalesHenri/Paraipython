@@ -1,0 +1,201 @@
+diff --git a/README.md b/README.md
+index 1732780..4aabfe1 100644
+--- a/README.md
++++ b/README.md
+@@ -39,6 +39,10 @@ Tudo isso rodando nas manhas no seu servidor cPanel, porque desenvolvedor experi
+                                           xícara de expresso — com lua na noturna —, sumário com
+                                           páginas, uma faixa por tema e Referências com o link de
+                                           cada matéria) e salva em media/edicoes_pdf/.
++                                          Na versão digital tudo é clicável: o título abre a
++                                          matéria, o [n] pula pra referência (e volta), o
++                                          sumário leva à seção, e o painel lateral do leitor
++                                          de PDF lista manchete, temas e Referências.
+ ```
+ 
+ **Sobre direitos autorais:** o jornal mostra só o título, um resumo curto (a linha fina do G1 ou o primeiro parágrafo do Jornal da Paraíba) e um número `[n]` que aponta pra seção de **Referências** no fim da edição, onde ficam os endereços das matérias originais (e do outro portal, quando a pauta saiu nos dois). O texto completo fica nos portais, que é onde ele mora.
+diff --git a/src/news/tests/test_pdf_e_views.py b/src/news/tests/test_pdf_e_views.py
+index d292754..9bac385 100644
+--- a/src/news/tests/test_pdf_e_views.py
++++ b/src/news/tests/test_pdf_e_views.py
+@@ -51,6 +51,39 @@ class TemplatePdfTest(ParaipythonTestCase):
+ 
+ 
+ @unittest.skipUnless(TEM_WEASYPRINT, "WeasyPrint indisponível neste ambiente")
++def links_do_pdf(caminho):
++    """Lê as anotações de link do PDF: (URLs externas, páginas de destino internas, marcadores)."""
++    import ctypes
++
++    import pypdfium2 as pdfium
++    import pypdfium2.raw as raw
++
++    pdf = pdfium.PdfDocument(caminho)
++    externos, internos = set(), set()
++    for indice in range(len(pdf)):
++        pagina, posicao = pdf[indice], 0
++        while True:
++            link, pos = raw.FPDF_LINK(), ctypes.c_int(posicao)
++            if not raw.FPDFLink_Enumerate(pagina.raw, ctypes.byref(pos), ctypes.byref(link)):
++                break
++            posicao = pos.value
++            acao = raw.FPDFLink_GetAction(link)
++            destino = raw.FPDFLink_GetDest(pdf.raw, link)
++            if acao:
++                tamanho = raw.FPDFAction_GetURIPath(pdf.raw, acao, None, 0)
++                if tamanho:
++                    buffer = ctypes.create_string_buffer(tamanho)
++                    raw.FPDFAction_GetURIPath(pdf.raw, acao, buffer, tamanho)
++                    externos.add(buffer.value.decode())
++                    continue
++                destino = raw.FPDFAction_GetDest(pdf.raw, acao) or destino
++            if destino:
++                internos.add((indice + 1, raw.FPDFDest_GetDestPageIndex(pdf.raw, destino) + 1))
++    marcadores = [m.get_title() for m in pdf.get_toc()]
++    pdf.close()
++    return externos, internos, marcadores
++
++
+ class GerarPdfTest(ParaipythonTestCase):
+     def test_gera_pdf_e_capa(self):
+         self.carregar_feeds()
+@@ -60,6 +93,31 @@ class GerarPdfTest(ParaipythonTestCase):
+         self.assertTrue(edicao.arquivo_pdf.name.endswith("expresso-pb-2026-11-15-noite.pdf"))
+         self.assertTrue(edicao.capa)
+ 
++    def test_links_clicaveis_e_marcadores(self):
++        self.carregar_feeds()
++        edicao = gerar_pdf_da_edicao(montar())
++        externos, internos, marcadores = links_do_pdf(edicao.arquivo_pdf.path)
++
++        # Todo link de matéria (e do outro portal, na pauta repetida) está clicável.
++        for rel in edicao.edicaonoticia_set.select_related("noticia"):
++            self.assertIn(rel.noticia.link, externos)
++            for outro in rel.outros_links:
++                self.assertIn(outro["link"], externos)
++
++        # Há links internos: [n] → Referências, Referências → notícia, sumário → seções.
++        self.assertTrue(internos)
++        ultima = max(destino for _, destino in internos)
++        self.assertTrue(any(origem == 1 and destino > 1 for origem, destino in internos))  # capa → adiante
++        self.assertIn((1, 1), internos)  # sumário → seção que começa na própria capa
++        self.assertTrue(any(origem == ultima and destino < ultima for origem, destino in internos))  # volta
++
++        # Painel lateral: manchete, temas e Referências — sem o título de cada notícia.
++        self.assertTrue(marcadores[0].startswith("Manchete: "))
++        self.assertEqual(marcadores[-1], "Referências")
++        self.assertIn("Polícia", marcadores)
++        segunda = edicao.edicaonoticia_set.get(posicao=1).noticia.titulo
++        self.assertNotIn(segunda, marcadores)
++
+     def test_comando_completo_com_feeds_locais(self):
+         saida = StringIO()
+         call_command(
+diff --git a/src/templates/pdf/jornal_template.html b/src/templates/pdf/jornal_template.html
+index 6a3a9d7..686cf68 100644
+--- a/src/templates/pdf/jornal_template.html
++++ b/src/templates/pdf/jornal_template.html
+@@ -63,8 +63,9 @@
+   .manchete .assinatura { text-align: right; margin-top: 5pt; font-size: 7.6pt; }
+ 
+   /* ---------- Sumário ---------- */
+-  .sumario { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline;
+-             gap: 2pt 0; margin: -3pt 0 10pt; padding: 4pt 6pt; border-bottom: 0.6pt solid var(--fio);
++  /* display: block (não flex): dentro de flex o WeasyPrint descarta os links dos <a>. */
++  .sumario { display: block; text-align: center; line-height: 1.6;
++             margin: -3pt 0 10pt; padding: 4pt 6pt; border-bottom: 0.6pt solid var(--fio);
+              font-size: 8pt; }
+   .sumario .rotulo { font-family: "UnifrakturMaguntia", serif; font-size: 11pt; margin-right: 6pt; }
+   .sumario a { color: var(--tinta); text-decoration: none; padding: 0 6pt;
+@@ -107,6 +108,17 @@
+   .assinatura strong { font-style: normal; }
+   .ref { font-style: normal; font-weight: 700; color: var(--vermelho); white-space: nowrap; }
+ 
++  /* ---------- Links clicáveis (discretos, sem azul) ---------- */
++  a { color: inherit; text-decoration: none; }
++  a.ref { color: var(--vermelho); }
++
++  /* ---------- Painel de marcadores do leitor de PDF ----------
++     Só manchete, temas e Referências (sem o título de cada notícia). */
++  h1, h2, h3, h4, h5, h6 { bookmark-level: none; }
++  .manchete h1 { bookmark-level: 1; bookmark-label: "Manchete: " content(text); }
++  .faixa h2 { bookmark-level: 1; }
++  .referencias h3 { bookmark-level: 1; }
++
+   /* ---------- Referências ---------- */
+   .referencias { margin-top: 8pt; border-top: 2.4pt double var(--fio); padding-top: 5pt; }
+   .referencias h3 { font-family: "UnifrakturMaguntia", serif; font-weight: 400; font-size: 17pt;
+@@ -118,7 +130,8 @@
+   .referencias .num { display: inline-block; width: 16pt; text-indent: 0; font-weight: 700;
+                       color: var(--vermelho); }
+   .referencias .titulo { font-style: italic; }
+-  .referencias .url { font-size: 6.4pt; color: #4a4036; word-break: break-all; hyphens: none; }
++  .referencias .url { font-size: 6.4pt; color: #4a4036; word-break: break-all; hyphens: none;
++                      border-bottom: 0.4pt dotted #9a8b70; }
+ 
+   /* ---------- Expediente ---------- */
+   .expediente { break-inside: avoid; margin-top: 8pt; border: 1.2pt double var(--fio);
+@@ -166,15 +179,15 @@
+ </header>
+ 
+ {% if manchete %}
+-<section class="manchete">
++<section class="manchete" id="materia-{{ manchete.ref }}">
+   <div class="chapeu">{{ manchete.tema_nome }}</div>
+-  <h1>{{ manchete.noticia.titulo }}</h1>
++  <h1><a href="{{ manchete.noticia.link }}">{{ manchete.noticia.titulo }}</a></h1>
+   <div class="texto"><p>{{ manchete.noticia.resumo }}</p></div>
+   <div class="assinatura">
+     <span>Matéria completa em <strong>{{ manchete.noticia.fonte.nome }}</strong>
+       {% if manchete.outras_fontes %}· também em {{ manchete.outras_fontes }}{% endif %}
+       · {{ manchete.noticia.publicado_em|date:"d/m H\hi" }}
+-      <span class="ref">[{{ manchete.ref }}]</span></span>
++      <a class="ref" href="#ref-{{ manchete.ref }}">[{{ manchete.ref }}]</a></span>
+   </div>
+ </section>
+ {% endif %}
+@@ -195,14 +208,14 @@
+   </div>
+   <div class="colunas c{{ secao.colunas }}">
+     {% for item in secao.itens %}
+-    <article class="materia{% if forloop.first %} abre{% endif %}">
+-      <h2>{{ item.noticia.titulo }}</h2>
++    <article class="materia{% if forloop.first %} abre{% endif %}" id="materia-{{ item.ref }}">
++      <h2><a href="{{ item.noticia.link }}">{{ item.noticia.titulo }}</a></h2>
+       <div class="texto"><p>{% if forloop.first %}<span class="capitular">{{ item.noticia.resumo|slice:":1" }}</span>{{ item.noticia.resumo|slice:"1:" }}{% else %}{{ item.noticia.resumo }}{% endif %}</p></div>
+       <div class="assinatura">
+         <span>Na íntegra em <strong>{{ item.noticia.fonte.nome }}</strong>
+           {% if item.outras_fontes %}· também em {{ item.outras_fontes }}{% endif %}
+           · {{ item.noticia.publicado_em|date:"d/m H\hi" }}
+-          <span class="ref">[{{ item.ref }}]</span></span>
++          <a class="ref" href="#ref-{{ item.ref }}">[{{ item.ref }}]</a></span>
+       </div>
+     </article>
+     {% endfor %}
+@@ -215,8 +228,9 @@
+   O Expresso PB é passado na hora por um robô em Python, com grãos dos portais
+   {{ fontes|join:", " }}, em duas edições: a da manhã, pra ler ao acordar, e a noturna, pra ler
+   ao voltar pra casa. Os textos aqui são resumos e chamadas; as matérias completas e seus
+-  direitos pertencem aos respectivos veículos. O número entre colchetes ao fim de cada notícia
+-  leva ao endereço da matéria original, na seção de Referências.
++  direitos pertencem aos respectivos veículos. Na versão digital, toque no título
++  para abrir a matéria original, ou no número entre colchetes para ver o endereço completo na
++  seção de Referências.
+   Edição tirada em {{ gerado_em|date:"d/m/Y \à\s H\hi" }}. Sirva-se.
+ </aside>
+ 
+@@ -225,12 +239,12 @@
+   <p class="nota">Endereços das matérias completas, na ordem em que aparecem nesta edição.</p>
+   <ol>
+     {% for item in referencias %}
+-    <li>
+-      <span class="num">[{{ item.ref }}]</span><strong>{{ item.noticia.fonte.nome }}</strong>,
++    <li id="ref-{{ item.ref }}">
++      <a class="num" href="#materia-{{ item.ref }}">[{{ item.ref }}]</a><strong>{{ item.noticia.fonte.nome }}</strong>,
+       <span class="titulo">“{{ item.noticia.titulo }}”</span>.
+-      <span class="url">{{ item.noticia.link }}</span>
++      <a class="url" href="{{ item.noticia.link }}">{{ item.noticia.link }}</a>
+       {% for outro in item.outros_links %}
+-        <br>Também em <strong>{{ outro.fonte }}</strong>: <span class="url">{{ outro.link }}</span>
++        <br>Também em <strong>{{ outro.fonte }}</strong>: <a class="url" href="{{ outro.link }}">{{ outro.link }}</a>
+       {% endfor %}
+     </li>
+     {% endfor %}
